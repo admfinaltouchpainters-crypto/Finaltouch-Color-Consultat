@@ -666,9 +666,13 @@
 
   /* ---------- automatic detection with AI ---------- */
   var aiProvider = null;   // 'claude' inside the Claude app, 'gemini' with a key, null = manual
+  // main path: the room-recognition model that runs on this device (free, no setup).
+  // Claude / Gemini are only fallbacks if the model cannot load.
+  var fallbackProvider = null, modelBroken = false;
   function pickProvider() {
     return AI.claudeProvider().then(function (s) {
-      aiProvider = s ? 'claude' : ((settings.geminiKey || '').trim() && !embedded ? 'gemini' : null);
+      fallbackProvider = s ? 'claude' : ((settings.geminiKey || '').trim() && !embedded ? 'gemini' : null);
+      aiProvider = (window.FTSegment && !modelBroken) ? 'model' : fallbackProvider;
       return aiProvider;
     });
   }
@@ -692,8 +696,37 @@
     var list = surfacesForProject().filter(function (x) { return state.answers.project === 'exterior' || x !== 'accent'; });
     return list.length ? list : ['walls'];
   }
+  var MODEL_CLASSES = {
+    interior: { walls: [1], ceiling: [6], doors: [15, 59], cabinets: [11] },
+    exterior: { walls: [2, 26, 1], doors: [15, 59], accent: [15] }
+  };
   function autoDetect(ph, label) {
     var surfs = detectSurfacesFor();
+    if (aiProvider === 'model') {
+      var ext = state.answers.project === 'exterior';
+      var classes = MODEL_CLASSES[ext ? 'exterior' : 'interior'];
+      // exterior: a front door is "accent" when chosen, otherwise "doors"
+      var list = surfs.filter(function (x) { return classes[x] && !(ext && x === 'doors' && surfs.indexOf('accent') >= 0); });
+      if (!list.length) list = ['walls'];
+      setBusy(true, (label || 'Reconhecendo o ambiente') + '… (na primeira vez baixa o modelo, uns segundos)');
+      return Promise.all([V.loadImage(ph.src), ensureWork(ph.id)]).then(function (r) {
+        return window.FTSegment.segment(r[0]).then(function (seg) {
+          var w = r[1];
+          if (ui.photo === ph.id) pushUndo(w);
+          var cover = w.applyLabels(seg, list, classes);
+          ph.renders = {}; ph.ai = {}; ph.useAi = {};
+          state.options.forEach(function (o) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); });
+          persist();
+          return cover;
+        });
+      }, null).catch(function (err) {
+        // model could not load or run: try the fallback once
+        console.warn(err);
+        if (!fallbackProvider) throw new Error('Não consegui rodar o reconhecimento de ambientes neste aparelho (' + (err && err.message || 'erro') + '). Marque com a Seleção inteligente.');
+        modelBroken = true; aiProvider = fallbackProvider;
+        return autoDetect(ph, label);
+      });
+    }
     if (aiProvider === 'claude') {
       setBusy(true, (label || 'O Claude está olhando a foto') + '… (pode levar até 1 minuto)');
       return AI.claudePoints(ph.src, surfs, state.answers.project).then(function (res) {
@@ -721,18 +754,20 @@
     });
   }
   function autoDetectAll(photos) {
-    var i = 0, problems = [];
+    var i = 0, problems = [], trimHint = false;
     function next() {
       if (i >= photos.length) {
         setBusy(false); renderPhotos();
         if (problems.length) toast(problems.join(' '), true);
-        else toast(photos.length > 1 ? photos.length + ' fotos prontas nas 3 opções. Confira e ajuste se precisar.' : 'Pronto: 3 opções geradas. Confira e ajuste se precisar.');
+        else toast((photos.length > 1 ? photos.length + ' fotos prontas nas 3 opções.' : 'Pronto: 3 opções geradas.') +
+          (trimHint ? ' O trim (rodapé e guarnições) a IA não marca: escolha "Trim" e toque nele com a Seleção inteligente.' : ' Confira e ajuste se precisar.'));
         return;
       }
       var ph = photos[i++];
       ui.photo = ph.id; renderPhotos();
       autoDetect(ph, photos.length > 1 ? 'A IA está analisando a foto ' + i + ' de ' + photos.length : null).then(function (cover) {
         if (!cover.walls || cover.walls < 0.01) problems.push('Na foto "' + ph.name + '" a IA não achou parede: marque com a Seleção inteligente.');
+        else if (aiProvider === 'model' && surfacesForProject().indexOf('trim') >= 0) trimHint = true;
         else if (works[ph.id] && works[ph.id].markerAspectOff) problems.push('Na foto "' + ph.name + '" a IA devolveu a imagem em outro formato: confira se as áreas batem com a foto.');
       }, function (err) {
         problems.push(err.message);

@@ -4,7 +4,7 @@ Ferramenta de consultoria de cores da **Final Touch Painters**. Funciona no nave
 
 1. **Entrevista**: perguntas de designer em inglês (para ler ao cliente), com a tradução em português.
 2. **Cores**: gera 3 opções completas (parede, trim, teto, parede destaque, portas, armários) com as cores reais da **Benjamin Moore** e da **Sherwin-Williams**, com código de loja, LRV, localização no leque da SW e a cor mais parecida da outra marca. Qualquer cor pode ser trocada pelo catálogo.
-3. **Fotos**: você só joga a foto. A IA (o próprio Claude, quando aberto pelo link do Claude) acha paredes, trim, teto, portas e armários e o app pinta as 3 opções com a **cor exata** do código da tinta, deixando todo o resto da foto igual. Para ajustar, use a Seleção inteligente, o Pincel e a Borracha. Sem a IA, as áreas são marcadas à mão com essas mesmas ferramentas.
+3. **Fotos**: você só joga a foto. Um modelo de reconhecimento de ambientes, que roda no próprio aparelho, acha paredes, teto, portas e armários (o trim você marca com um toque) e o app pinta as 3 opções com a **cor exata** do código da tinta, deixando todo o resto da foto igual. Para ajustar, use a Seleção inteligente, o Pincel e a Borracha. Sem a IA, as áreas são marcadas à mão com essas mesmas ferramentas.
 4. **Apresentação**: documento em inglês com a marca Final Touch (capa, resumo, 3 opções com fotos, comparação lado a lado, lista de compras, próximos passos), pronto para salvar em PDF.
 
 ## Como usar
@@ -18,10 +18,14 @@ Ferramenta de consultoria de cores da **Final Touch Painters**. Funciona no nave
 ### Publicar como site (GitHub Pages)
 No GitHub: *Settings → Pages → Build and deployment → Deploy from a branch* → escolha a branch e a pasta `/ (root)`. O site fica em `https://<usuario>.github.io/<repositorio>/`.
 
-### IA que acha as paredes
-- **Pelo link do Claude (recomendado):** não precisa configurar nada. Jogue a foto: o app manda a foto (com uma grade de coordenadas) para o Claude, que aponta onde estão parede, trim, teto, portas e armários; o app expande cada ponto até a borda real e pinta as 3 opções com a cor exata. Na primeira vez o Claude pede para você autorizar o app. Leva até 1 minuto por foto e usa o seu plano do Claude.
-- **Fora do Claude (site/GitHub Pages, opcional):** dá para usar a IA do Google. Crie uma chave em aistudio.google.com (Get API key) e cole em Configurações. Pode exigir faturamento ativo no Google.
-- Pontos que caem em móveis ou quadros são descartados quando a cor não bate com o resto da superfície. Ajustes finos: Seleção inteligente, Pincel e Borracha. Parede de destaque interna é marcada à mão.
+### Reconhecimento de ambientes (automático, sem configurar nada)
+Ao jogar a foto, o app roda no próprio aparelho um modelo de reconhecimento de ambientes (DeepLabV3 + MobileNetV2 treinado no ADE20K, 150 categorias). Ele separa **parede, teto, porta e armário** pelo formato e pelo contexto, e o app ajusta as bordas pela cor real da foto e descarta pedaços de móveis confundidos com parede. Depois pinta as 3 opções com a cor exata.
+
+- Grátis, sem chave, funciona dentro do Claude e no site. Na primeira vez baixa ~10 MB (biblioteca TensorFlow.js + `models/seg-weights.bin`).
+- **Trim (rodapé, guarnições) o modelo não reconhece**: escolha *Trim* e toque nele com a Seleção inteligente.
+- Ajustes finos: Seleção inteligente, Pincel e Borracha. Parede de destaque interna é marcada à mão.
+- Reservas (só se o modelo não carregar): o próprio Claude (no app do Claude) ou a IA do Google com chave em Configurações.
+- Modelo: `tools/export_segmodel.py` converte o arquivo TFLite oficial (TensorFlow Models, Apache-2.0) em `models/seg-graph.json` + `models/seg-weights.bin`.
 
 ## Dados das cores
 
@@ -44,7 +48,8 @@ js/color.js         ciência de cor (OKLab), classificação de família e subto
 js/questions.js     roteiro da entrevista
 js/recommend.js     motor de recomendação (3 opções + trim, teto, destaque)
 js/visualizer.js    seleção inteligente, pincel e repintura da foto
-js/ai.js            detecção automática das áreas (Claude no app do Claude; Gemini opcional fora)
+js/segment.js       reconhecimento de ambientes no navegador (TensorFlow.js)
+js/ai.js            reservas: Claude (no app do Claude) e Gemini (com chave)
 js/report.js        apresentação para o cliente
 js/store.js         salvamento local (IndexedDB) e configurações
 js/app.js           ligação da interface

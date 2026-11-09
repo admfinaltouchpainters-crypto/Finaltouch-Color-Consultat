@@ -419,7 +419,17 @@
       if (orr * orr + og * og + ob * ob < 70 * 70) continue;    // a red object that was already red
       lbl[p] = best;
     }
-    // 5x5 majority vote per label (integral images)
+    return this.refineLabels(lbl, surfaces, { R: 3, purge: false });
+  };
+
+  /* Shared clean-up for AI label maps (lbl[p] = surface index + 1, 0 = none):
+     5x5 majority vote, then edge snapping to the real photo. In the boundary band
+     each pixel goes to the nearby surface whose color it matches best, or to
+     none. With purge, pixels deep inside a surface whose color is far off (a dark
+     wardrobe the model called "wall") are dropped too. */
+  Work.prototype.refineLabels = function (lbl, surfaces, opt) {
+    var w = this.w, h = this.h, n = this.n, lab = this.lab, K = surfaces.length;
+    var R = opt.R || 3, purge = !!opt.purge;
     var W1 = w + 1, out = new Uint8Array(n), bestCnt = new Uint8Array(n);
     for (var k2 = 1; k2 <= K; k2++) {
       var I = new Int32Array(W1 * (h + 1));
@@ -438,14 +448,14 @@
         }
       }
     }
-    // edge snapping: core = label with all 4-neighbors at distance 3 also labeled
-    var R = 3, wl = 0.3, wc = 4;
+    var wl = 0.3, wc = 4;
     var stats = [];
     for (var k3 = 1; k3 <= K; k3++) stats[k3] = { L: 0, a: 0, b: 0, n: 0 };
     function isCore(q, k) {
       var x = q % w, y = (q / w) | 0;
       if (x < R || y < R || x >= w - R || y >= h - R) return false;
-      return out[q - R] === k && out[q + R] === k && out[q - R * w] === k && out[q + R * w] === k;
+      return out[q - R] === k && out[q + R] === k && out[q - R * w] === k && out[q + R * w] === k &&
+        out[q - R - R * w] === k && out[q + R + R * w] === k && out[q + R - R * w] === k && out[q - R + R * w] === k;
     }
     var core = new Uint8Array(n);
     for (var q2 = 0; q2 < n; q2++) {
@@ -453,7 +463,6 @@
       if (isCore(q2, kk)) { core[q2] = 1; var st = stats[kk]; st.L += lab[q2 * 3]; st.a += lab[q2 * 3 + 1]; st.b += lab[q2 * 3 + 2]; st.n++; }
     }
     for (var k4 = 1; k4 <= K; k4++) { var s4 = stats[k4]; if (s4.n) { s4.L /= s4.n; s4.a /= s4.n; s4.b /= s4.n; } }
-    // spread of each surface's color, so textured/shaded surfaces get a wider band tolerance
     var spread = [];
     for (var k5 = 1; k5 <= K; k5++) spread[k5] = { sum: 0, n: 0 };
     for (var q3 = 0; q3 < n; q3 += 7) {
@@ -462,27 +471,35 @@
       var dl = (lab[q3 * 3] - s6.L) * wl, da = lab[q3 * 3 + 1] - s6.a, db2 = lab[q3 * 3 + 2] - s6.b;
       spread[k6].sum += dl * dl + wc * (da * da + db2 * db2); spread[k6].n++;
     }
-    var final = new Uint8Array(n);
+    var lims = [];
+    for (var k8 = 1; k8 <= K; k8++) lims[k8] = Math.max(0.0025, (spread[k8].n ? spread[k8].sum / spread[k8].n : 0.002) * 4);
+    function dist2(q, k) {
+      var st = stats[k];
+      var dl = (lab[q * 3] - st.L) * wl, da = lab[q * 3 + 1] - st.a, db = lab[q * 3 + 2] - st.b;
+      return dl * dl + wc * (da * da + db * db);
+    }
+    var final = new Uint8Array(n), D = [-R, 0, R];
     for (var q4 = 0; q4 < n; q4++) {
       var k7 = out[q4];
       if (core[q4]) { final[q4] = k7; continue; }
-      // boundary band: which labels are near (within R px)?
-      var x4 = q4 % w, y4 = (q4 / w) | 0, cand = 0;
-      for (var dy = -R; dy <= R && !cand; dy += R) for (var dx = -R; dx <= R; dx += R) {
-        var xx = x4 + dx, yy = y4 + dy;
+      // boundary band: candidate surfaces = core labels within R px (8 directions) + own label
+      var x4 = q4 % w, y4 = (q4 / w) | 0, best = 0, bd = 1e9;
+      for (var iy = 0; iy < 3; iy++) for (var ix = 0; ix < 3; ix++) {
+        var xx = x4 + D[ix], yy = y4 + D[iy];
         if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
-        var o = out[yy * w + xx];
-        if (o && core[yy * w + xx]) { cand = o; break; }
+        var qq = yy * w + xx, o = out[qq];
+        if (!o || !core[qq] || !stats[o].n) continue;
+        var d = dist2(q4, o) / lims[o];
+        if (d < bd) { bd = d; best = o; }
       }
-      if (!cand) cand = k7;
-      if (!cand) continue;
-      var s7 = stats[cand]; if (!s7.n) { if (k7) final[q4] = k7; continue; }
-      var sp = spread[cand].n ? spread[cand].sum / spread[cand].n : 0.002;
-      var lim = Math.max(0.0025, sp * 4);
-      var dl2 = (lab[q4 * 3] - s7.L) * wl, da2 = lab[q4 * 3 + 1] - s7.a, db3 = lab[q4 * 3 + 2] - s7.b;
-      if (dl2 * dl2 + wc * (da2 * da2 + db3 * db3) <= lim) final[q4] = cand;
+      if (!best && k7 && stats[k7].n) { best = k7; bd = dist2(q4, k7) / lims[k7]; }
+      if (best && bd <= 1) final[q4] = best;
     }
-    // write masks
+    if (purge) this.purgeOddColors(final, K);
+    // per-surface pieces: drop small fragments and pieces whose color clearly differs from
+    // the biggest piece of that surface (a wardrobe panel the model mistook for a door)
+    if (opt.minFrac) this.dropStrayPieces(final, surfaces, opt.minFrac);
+    // write masks (an accent wall the user marked stays theirs)
     var keep = this.masks.accent && surfaces.indexOf('accent') < 0 ? this.masks.accent : null;
     var self = this, cover = {};
     surfaces.forEach(function (sname, idx) {
@@ -493,6 +510,116 @@
       cover[sname] = c / n;
     });
     return cover;
+  };
+
+  /* Inside each surface, group its colors (k-means, 4 groups). Big groups are the
+     real surface, even when it has two paints or tile; a small group whose color is
+     far from every big group is an object the model mislabeled, and it is removed. */
+  Work.prototype.purgeOddColors = function (final, K) {
+    var n = this.n, lab = this.lab, wl = 0.3, wc = 2;
+    for (var k = 1; k <= K; k++) {
+      var idx = [];
+      for (var p = 0; p < n; p += 3) if (final[p] === k) idx.push(p);
+      if (idx.length < 300) continue;
+      var G = 4, C = [], i, j;
+      for (i = 0; i < G; i++) { var q0 = idx[Math.floor((i + 0.5) / G * idx.length)]; C.push([lab[q0 * 3] * wl, lab[q0 * 3 + 1] * wc, lab[q0 * 3 + 2] * wc]); }
+      // spread initial centers by lightness so dark/light groups separate
+      var cnt = new Int32Array(G), ySum = new Float64Array(G), w = this.w;
+      for (var it = 0; it < 8; it++) {
+        var S = []; for (i = 0; i < G; i++) S.push([0, 0, 0]); cnt.fill(0);
+        for (j = 0; j < idx.length; j++) {
+          var q = idx[j], v0 = lab[q * 3] * wl, v1 = lab[q * 3 + 1] * wc, v2 = lab[q * 3 + 2] * wc, best = 0, bd = 1e9;
+          for (i = 0; i < G; i++) { var d = (v0 - C[i][0]) * (v0 - C[i][0]) + (v1 - C[i][1]) * (v1 - C[i][1]) + (v2 - C[i][2]) * (v2 - C[i][2]); if (d < bd) { bd = d; best = i; } }
+          S[best][0] += v0; S[best][1] += v1; S[best][2] += v2; cnt[best]++;
+          if (it === 7) ySum[best] += (q / w) | 0;
+        }
+        for (i = 0; i < G; i++) if (cnt[i]) C[i] = [S[i][0] / cnt[i], S[i][1] / cnt[i], S[i][2] / cnt[i]];
+      }
+      var total = idx.length, big = [], drop = [], dom = 0;
+      for (i = 0; i < G; i++) if (cnt[i] > cnt[dom]) dom = i;
+      function cdist(u, v) { return Math.sqrt((u[0] - v[0]) * (u[0] - v[0]) + (u[1] - v[1]) * (u[1] - v[1]) + (u[2] - v[2]) * (u[2] - v[2])); }
+      function chroma(u) { return Math.sqrt(u[1] * u[1] + u[2] * u[2]) / wc; }
+      function hueDiff(u, v) { var d = Math.abs(Math.atan2(u[2], u[1]) - Math.atan2(v[2], v[1])) * 180 / Math.PI; return d > 180 ? 360 - d : d; }
+      for (i = 0; i < G; i++) {
+        drop[i] = false;
+        if (!cnt[i] || i === dom) continue;
+        var share = cnt[i] / total, far = cdist(C[i], C[dom]);
+        // furniture the model mistook for wall sits lower in the photo than the wall;
+        // a group higher up than the main group is wall (e.g. paint above a tile backsplash)
+        var lower = ySum[i] / cnt[i] > ySum[dom] / cnt[dom];
+        if (!lower) { if (share >= 0.22) big.push(i); continue; }
+        // a clearly different hue than the main paint (blue bed on a yellow wall)
+        if (share < 0.45 && chroma(C[i]) > 0.05 && chroma(C[dom]) > 0.05 && hueDiff(C[i], C[dom]) > 70) { drop[i] = true; continue; }
+        // very different color (white furniture on a blue-gray wall) even if it is a mid-size group
+        if (share < 0.32 && far > 0.15) { drop[i] = true; continue; }
+        if (share >= 0.22) big.push(i);
+      }
+      big.push(dom);
+      for (i = 0; i < G; i++) {
+        if (drop[i] || !cnt[i] || cnt[i] / total >= 0.22) continue;
+        var near = 1e9;
+        for (j = 0; j < big.length; j++) { var dd = cdist(C[i], C[big[j]]); if (dd < near) near = dd; }
+        if (near > 0.075) drop[i] = true;
+      }
+      if (!drop.some(Boolean)) continue;
+      for (p = 0; p < n; p++) {
+        if (final[p] !== k) continue;
+        var w0 = lab[p * 3] * wl, w1 = lab[p * 3 + 1] * wc, w2 = lab[p * 3 + 2] * wc, bi = 0, bdd = 1e9;
+        for (i = 0; i < G; i++) { var e = (w0 - C[i][0]) * (w0 - C[i][0]) + (w1 - C[i][1]) * (w1 - C[i][1]) + (w2 - C[i][2]) * (w2 - C[i][2]); if (e < bdd) { bdd = e; bi = i; } }
+        if (drop[bi]) final[p] = 0;
+      }
+    }
+  };
+
+  Work.prototype.dropStrayPieces = function (final, surfaces, minFrac) {
+    var w = this.w, h = this.h, n = this.n, lab = this.lab;
+    var comp = new Int32Array(n), stack = new Int32Array(n), pieces = [], id = 0;
+    for (var p = 0; p < n; p++) {
+      if (!final[p] || comp[p]) continue;
+      var k = final[p], sp = 0, cnt = 0, L = 0, a = 0, b = 0;
+      id++; comp[p] = id; stack[sp++] = p;
+      while (sp) {
+        var q = stack[--sp]; cnt++; L += lab[q * 3]; a += lab[q * 3 + 1]; b += lab[q * 3 + 2];
+        var x = q % w, y = (q / w) | 0;
+        if (x > 0 && final[q - 1] === k && !comp[q - 1]) { comp[q - 1] = id; stack[sp++] = q - 1; }
+        if (x < w - 1 && final[q + 1] === k && !comp[q + 1]) { comp[q + 1] = id; stack[sp++] = q + 1; }
+        if (y > 0 && final[q - w] === k && !comp[q - w]) { comp[q - w] = id; stack[sp++] = q - w; }
+        if (y < h - 1 && final[q + w] === k && !comp[q + w]) { comp[q + w] = id; stack[sp++] = q + w; }
+      }
+      pieces[id] = { k: k, n: cnt, L: L / cnt, a: a / cnt, b: b / cnt };
+    }
+    var biggest = [];
+    for (var i = 1; i <= id; i++) { var pc = pieces[i]; if (!biggest[pc.k] || pc.n > biggest[pc.k].n) biggest[pc.k] = pc; }
+    var drop = new Uint8Array(id + 1);
+    for (var j = 1; j <= id; j++) {
+      var pj = pieces[j], ref = biggest[pj.k], sname = surfaces[pj.k - 1];
+      var minN = n * (minFrac[sname] || 0.002);
+      if (pj.n < minN) { drop[j] = 1; continue; }
+      if (pj === ref) continue;
+      var C = Math.sqrt(pj.a * pj.a + pj.b * pj.b), rC = Math.sqrt(ref.a * ref.a + ref.b * ref.b);
+      var dh = Math.abs(Math.atan2(pj.b, pj.a) - Math.atan2(ref.b, ref.a)) * 180 / Math.PI; if (dh > 180) dh = 360 - dh;
+      var strict = sname === 'doors' || sname === 'cabinets' || sname === 'trim';
+      if (Math.abs(pj.L - ref.L) > (strict ? 0.12 : 0.3) || (Math.min(C, rC) > 0.02 && dh > 40) ||
+          Math.abs(C - rC) > (strict ? 0.03 : 0.06)) drop[j] = 1;
+    }
+    for (var q2 = 0; q2 < n; q2++) if (final[q2] && drop[comp[q2]]) final[q2] = 0;
+  };
+
+  /* Room-recognition labels (ADE20K ids at a small size) -> masks. */
+  Work.prototype.applyLabels = function (seg, surfaces, classesBySurface) {
+    var w = this.w, h = this.h, n = this.n, lbl = new Uint8Array(n);
+    var map = new Uint8Array(256);
+    surfaces.forEach(function (s, i) { (classesBySurface[s] || []).forEach(function (c) { map[c] = i + 1; }); });
+    var sx = seg.lw / w, sy = seg.lh / h;
+    for (var y = 0; y < h; y++) {
+      var ly = Math.min(seg.lh - 1, Math.floor((y + 0.5) * sy));
+      for (var x = 0; x < w; x++) {
+        var lx = Math.min(seg.lw - 1, Math.floor((x + 0.5) * sx));
+        lbl[y * w + x] = map[seg.labels[ly * seg.lw + lx]];
+      }
+    }
+    return this.refineLabels(lbl, surfaces, { R: Math.max(3, Math.round(Math.max(w, h) / 220)), purge: true,
+      minFrac: { walls: 0.002, ceiling: 0.002, doors: 0.012, cabinets: 0.006, accent: 0.004 } });
   };
 
   /* Grow AI-suggested points (0-100 grid units) into masks. Each point is
