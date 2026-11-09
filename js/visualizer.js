@@ -56,6 +56,7 @@
     var d = this.orig.data;
     this.w = w; this.h = h; this.n = n;
     this.Y = new Float32Array(n);
+    this.Yb = new Float32Array(n);   // 3x3 smoothed luminance (less camera noise)
     this.lab = new Float32Array(n * 3);
     // light 3x3 box blur before Lab so camera noise does not stop the fill
     var tmp = new Float32Array(n * 3);
@@ -79,6 +80,7 @@
         F.linToOklab(sr / cnt, sg / cnt, sb / cnt, out);
         var k = (y * w + x) * 3;
         this.lab[k] = out[0]; this.lab[k + 1] = out[1]; this.lab[k + 2] = out[2];
+        this.Yb[y * w + x] = (0.2126 * sr + 0.7152 * sg + 0.0722 * sb) / cnt;
       }
     }
     this.masks = {};
@@ -133,7 +135,7 @@
     if (blockedSeed) return [];
     stack[sp++] = seed; seen[seed] = 1;
     // lightness gets less weight so shading across a wall does not stop the fill
-    var wl = 0.45, wc = 4;
+    var wl = 0.3, wc = 4;
     while (sp > 0) {
       var p = stack[--sp];
       out.push(p);
@@ -224,7 +226,7 @@
         var al = s2 / c2 / 255;
         var p = y2 * w + x2;
         a[p] = al;
-        if (m[p]) { sumY += this.Y[p]; sumW++; any = true; }
+        if (m[p]) { sumY += this.Yb[p]; sumW++; any = true; }
       }
     }
     // reference brightness: average of the surface (median-ish robust mean)
@@ -249,11 +251,15 @@
       var rgb = F.hexToRgb(hex);
       var tr = F.LIN[rgb[0]], tg = F.LIN[rgb[1]], tb = F.LIN[rgb[2]];
       var meanY = Math.max(0.002, A.meanY);
-      var a = A.a, Y = self.Y;
+      var a = A.a, Y = self.Y, Yb = self.Yb;
+      // On dark originals, fine detail is mostly sensor noise; amplifying it onto a light
+      // color looks grainy, so keep less of it there.
+      var detail = Math.max(0.25, Math.min(1, meanY / 0.15));
       for (var p = 0; p < n; p++) {
         var al = a[p];
         if (al <= 0.003) continue;
-        var sh = Y[p] / meanY;               // this pixel's shading relative to the surface
+        var sh = (Yb[p] + (Y[p] - Yb[p]) * detail) / meanY;   // shading relative to the surface
+        if (sh < 0) sh = 0;
         if (sh > 2.5) sh = 2.5;
         var r = tr * sh, g = tg * sh, b = tb * sh;
         // soft roll-off instead of hard clipping in highlights

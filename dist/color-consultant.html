@@ -286,6 +286,8 @@ figcaption { font-size: 8.5pt; color: var(--p-soft); margin-top: 4px; }
 .r-dot { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,.15); margin-right: 6px; vertical-align: -1px; }
 .r-next { margin-top: auto; }
 .r-next ol { margin: 0 0 8px; padding-left: 18px; }
+.r-next.solo { margin-top: 0; }
+.r-next.solo ol { font-size: 12pt; display: grid; gap: 8px; }
 
 /* closing */
 .r-page.closing { justify-content: center; }
@@ -644,20 +646,21 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       // neutrals with an undertone
       if (lrv >= 74) fam = hueIn(h, 40, 105) && C > 0.022 ? 'cream' : 'white';
       else if (L < 0.36) fam = hueIn(h, 200, 290) && C > 0.018 ? 'navy' : 'black';
-      else if (hueIn(h, 225, 285)) fam = L < 0.5 && C > 0.018 ? 'navy' : (C > 0.02 ? 'blue' : 'gray');
+      else if (hueIn(h, 225, 265)) fam = L < 0.5 && C > 0.018 ? 'navy' : (C > 0.02 ? 'blue' : 'gray');
+      else if (hueIn(h, 265, 320)) fam = C > 0.02 ? (L < 0.45 && h < 280 ? 'navy' : 'purple') : 'gray';
       else if (hueIn(h, 150, 225)) fam = C > 0.015 ? (L > 0.78 ? 'blue' : 'teal') : 'gray';
       else if (hueIn(h, 105, 150)) fam = C > 0.016 ? 'sage' : 'gray';
-      else if (hueIn(h, 290, 20)) fam = C > 0.03 && L > 0.6 ? 'pink' : 'taupe';
+      else if (hueIn(h, 320, 20)) fam = C > 0.03 && L > 0.6 ? 'pink' : 'taupe';
       else if (hueIn(h, 20, 60)) fam = C > 0.03 ? (L > 0.62 ? 'beige' : 'taupe') : (C < 0.02 ? 'greige' : 'taupe');
-      else /* 60-105 yellowish */ fam = C < 0.024 ? 'greige' : (L < 0.55 ? 'taupe' : 'beige');
+      else /* 60-105 yellowish */ fam = C < 0.024 ? 'greige' : (h >= 92 && C > 0.027 ? 'sage' : (L < 0.55 ? 'taupe' : 'beige'));
     } else {
       if (lrv >= 78 && C < 0.06 && hueIn(h, 40, 115)) fam = 'cream';
-      else if (hueIn(h, 345, 40)) fam = L > 0.72 ? 'pink' : (L < 0.5 && C < 0.06 ? 'brown' : 'red');
+      else if (hueIn(h, 345, 40)) fam = L > 0.72 ? 'pink' : (L < 0.5 && C < 0.045 ? 'brown' : 'red');
       else if (hueIn(h, 40, 80)) fam = L < 0.5 && C < 0.12 ? 'brown' : (L > 0.82 && C < 0.08 ? 'beige' : 'orange');
-      else if (hueIn(h, 80, 108)) fam = L < 0.55 ? (C < 0.09 ? 'brown' : 'sage') : (C < 0.06 ? 'beige' : 'yellow');
+      else if (hueIn(h, 80, 108)) fam = L < 0.55 ? (h >= 92 || C >= 0.09 ? 'sage' : 'brown') : (C < 0.06 ? 'beige' : 'yellow');
       else if (hueIn(h, 108, 175)) fam = C < 0.085 ? 'sage' : 'green';
       else if (hueIn(h, 175, 225)) fam = 'teal';
-      else if (hueIn(h, 225, 276)) fam = L < 0.48 ? 'navy' : 'blue';
+      else if (hueIn(h, 225, 268)) fam = L < 0.48 ? 'navy' : 'blue';
       else fam = L > 0.75 && C < 0.08 ? 'purple' : (hueIn(h, 320, 345) ? 'pink' : 'purple');
       if (fam === 'pink' && L < 0.6) fam = 'red';
     }
@@ -674,7 +677,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     else if (hueIn(h, 45, 75)) under = 'warm beige';
     else if (hueIn(h, 75, 120)) under = 'yellow';
     else if (hueIn(h, 120, 185)) under = 'green';
-    else if (hueIn(h, 185, 280)) under = 'blue';
+    else if (hueIn(h, 185, 268)) under = 'blue';
     else under = 'violet';
     return { family: fam, temp: temp, undertone: under };
   }
@@ -1069,6 +1072,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     var fw = ctx.families[c.family] || 0;
     var neutralFam = { greige: 1, gray: 1, beige: 1, taupe: 1, white: 1, cream: 1 };
     if (neutralFam[c.family] && c.undertone === 'pink/red' && (a.likes || []).indexOf('pink') < 0) s -= 1.2;
+    if ((neutralFam[c.family] || c.family === 'blue') && c.undertone === 'violet' && (a.likes || []).indexOf('purple') < 0) s -= 1.5;
     s += fw * 1.4;
     if ((a.likes || []).indexOf(c.family) >= 0) why.push('it sits in the ' + F.FAMILY[c.family].en.toLowerCase() + ' family you said you love');
 
@@ -1108,8 +1112,9 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     if (moods.indexOf('cozy') >= 0 && c.temp === 'warm') s += 0.6;
     if (moods.indexOf('fresh') >= 0 && c.C < 0.07 && c.lrv > 50) s += 0.5;
     // strong, saturated colors on whole rooms are rarely what people want
-    var cmax = moods.indexOf('energetic') >= 0 ? 0.16 : (c.lrv < 25 ? 0.085 : 0.12);
-    if (c.C > cmax) s -= (c.C - cmax) * 45;
+    var cmax = moods.indexOf('energetic') >= 0 ? 0.16 : (c.lrv < 25 ? 0.08 : 0.12);
+    if (moods.indexOf('elegant') >= 0 || moods.indexOf('calm') >= 0) cmax = Math.min(cmax, 0.075);
+    if (c.C > cmax) s -= (c.C - cmax) * 120;
 
     if (a.fixed === 'warmwood' && c.temp === 'warm') { s += 0.5; why.push('it works with your warm wood and beige tones'); }
     if (a.fixed === 'coolgray' && c.temp !== 'warm') { s += 0.5; why.push('it ties in with the gray and cool stone already in the room'); }
@@ -1194,17 +1199,21 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   }
 
   function pickAccent(a, wall, pool, ctx, usedFamilies) {
-    var likes = (a.likes || []).filter(function (f) { return f !== wall.family && f !== 'white' && f !== 'cream'; });
+    var likes = (a.likes || []).filter(function (f) { return f !== 'white' && f !== 'cream'; });
     var accent = bestBy(pool, function (c) {
       if ((a.avoid || []).indexOf(c.family) >= 0) return null;
       if (c.lrv > 25 || c.lrv < 2.5) return null;
       if (F.dist(c, wall) < 0.08) return null;
-      var s = (ctx.families[c.family] || 0) * 0.8;
+      var fw = ctx.families[c.family] || 0;
+      var s = fw * 0.8;
       if (likes.indexOf(c.family) >= 0) s += 2;
+      if (!fw && likes.indexOf(c.family) < 0) s -= 2;          // a family nobody asked for
+      // a deeper shade of the wall color always works (tonal scheme)
+      var dh = Math.abs(((c.h - wall.h + 540) % 360) - 180);
+      if (wall.C > 0.02 && c.C > 0.015 && dh < 20) s += 1.8;
       if (usedFamilies[c.family]) s -= 1.2;
       s += c.popular ? 1.5 : 0;
-      if (c.C > 0.1) s -= 1.5;
-      // keep accent in harmony: same temperature or neutral
+      if (c.C > 0.09) s -= (c.C - 0.09) * 40;
       if (wall.temp !== 'neutral' && c.temp !== 'neutral' && c.temp !== wall.temp) s -= 1;
       return s;
     });
@@ -1239,6 +1248,9 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     scored.sort(function (x, y) { return y.score - x.score; });
 
     // Options A and B: best and best-different. Option C: a bolder take.
+    // when the client named favorite families, alternatives come from those first
+    var likesList = (a.likes || []).filter(function (f) { return f !== 'white' || a.depth === 'light'; });
+    function wantedFam(f) { return likesList.length ? likesList.indexOf(f) >= 0 : (ctx.families[f] || 0) > 0; }
     var top = pickDiverse(scored, 1, 0.045);
     // second option: prefer a different color family when one scores close to the leader
     if (top.length) {
@@ -1246,7 +1258,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       var alt = null;
       for (var k = 0; k < Math.min(scored.length, 200); k++) {
         var s2 = scored[k];
-        if (s2.c.family !== lead.c.family && s2.score >= lead.score - 4 && F.dist(s2.c, lead.c) > 0.045) { alt = s2; break; }
+        if (s2.c.family !== lead.c.family && wantedFam(s2.c.family) && s2.score >= lead.score - 4 && F.dist(s2.c, lead.c) > 0.045) { alt = s2; break; }
       }
       if (!alt) alt = pickDiverse(scored, 2, 0.045)[1];
       if (alt) top.push(alt);
@@ -1271,7 +1283,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       var cand = scored2[i];
       if (!top.every(function (t) { return F.dist(t.c, cand.c) > 0.06 && t.c.name !== cand.c.name; })) continue;
       if (!firstOk) firstOk = cand;
-      if (usedFam.indexOf(cand.c.family) < 0 && cand.score >= firstOk.score - 3) { bold = cand; break; }
+      if (usedFam.indexOf(cand.c.family) < 0 && wantedFam(cand.c.family) && cand.score >= firstOk.score - 3) { bold = cand; break; }
       if (cand.score < firstOk.score - 3) break;
     }
     if (!bold) bold = firstOk;
@@ -1412,6 +1424,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     var d = this.orig.data;
     this.w = w; this.h = h; this.n = n;
     this.Y = new Float32Array(n);
+    this.Yb = new Float32Array(n);   // 3x3 smoothed luminance (less camera noise)
     this.lab = new Float32Array(n * 3);
     // light 3x3 box blur before Lab so camera noise does not stop the fill
     var tmp = new Float32Array(n * 3);
@@ -1435,6 +1448,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
         F.linToOklab(sr / cnt, sg / cnt, sb / cnt, out);
         var k = (y * w + x) * 3;
         this.lab[k] = out[0]; this.lab[k + 1] = out[1]; this.lab[k + 2] = out[2];
+        this.Yb[y * w + x] = (0.2126 * sr + 0.7152 * sg + 0.0722 * sb) / cnt;
       }
     }
     this.masks = {};
@@ -1489,7 +1503,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     if (blockedSeed) return [];
     stack[sp++] = seed; seen[seed] = 1;
     // lightness gets less weight so shading across a wall does not stop the fill
-    var wl = 0.45, wc = 4;
+    var wl = 0.3, wc = 4;
     while (sp > 0) {
       var p = stack[--sp];
       out.push(p);
@@ -1580,7 +1594,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
         var al = s2 / c2 / 255;
         var p = y2 * w + x2;
         a[p] = al;
-        if (m[p]) { sumY += this.Y[p]; sumW++; any = true; }
+        if (m[p]) { sumY += this.Yb[p]; sumW++; any = true; }
       }
     }
     // reference brightness: average of the surface (median-ish robust mean)
@@ -1605,11 +1619,15 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       var rgb = F.hexToRgb(hex);
       var tr = F.LIN[rgb[0]], tg = F.LIN[rgb[1]], tb = F.LIN[rgb[2]];
       var meanY = Math.max(0.002, A.meanY);
-      var a = A.a, Y = self.Y;
+      var a = A.a, Y = self.Y, Yb = self.Yb;
+      // On dark originals, fine detail is mostly sensor noise; amplifying it onto a light
+      // color looks grainy, so keep less of it there.
+      var detail = Math.max(0.25, Math.min(1, meanY / 0.15));
       for (var p = 0; p < n; p++) {
         var al = a[p];
         if (al <= 0.003) continue;
-        var sh = Y[p] / meanY;               // this pixel's shading relative to the surface
+        var sh = (Yb[p] + (Y[p] - Yb[p]) * detail) / meanY;   // shading relative to the surface
+        if (sh < 0) sh = 0;
         if (sh > 2.5) sh = 2.5;
         var r = tr * sh, g = tg * sh, b = tb * sh;
         // soft roll-off instead of hard clipping in highlights
@@ -1970,15 +1988,18 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
             '<td class="soft">' + (m ? esc(m.c.name) + ' ' + esc(m.c.code) : '') + '</td></tr>';
         });
       });
-      page(header(s, logo) + '<div class="r-body"><p class="r-kicker">Paint list</p><h2>Everything you need at the store</h2>' +
-        '<p class="soft">Give the code to the paint counter. Benjamin Moore and Sherwin-Williams codes are exact. The last column is the closest color in the other brand, which is similar but not identical.</p>' +
-        '<table class="r-shop"><thead><tr><th>Opt.</th><th>Surface</th><th>Color</th><th>Code</th><th>Suggested sheen</th><th>Fan deck</th><th>Closest in other brand</th></tr></thead><tbody>' + trs + '</tbody></table>' +
-        '<div class="r-next"><h3>Next steps</h3><ol>' +
+      var rowCount = (trs.match(/<tr/g) || []).length;
+      var nextSteps = '<div class="r-next"><h3>Next steps</h3><ol>' +
         '<li>Pick your favorite option, or mix: we can swap any single color.</li>' +
         '<li>We put up large samples of your top choice so you can see them in morning and evening light.</li>' +
         '<li>We confirm colors and sheens in your written estimate, with start and finish dates.</li></ol>' +
-        '<p class="soft small">Screens and printers cannot show paint color exactly, and the photos are a visualization. Please confirm every color with a physical sample on your wall before painting.</p></div>' +
-        '</div>');
+        '<p class="soft small">Screens and printers cannot show paint color exactly, and the photos are a visualization. Please confirm every color with a physical sample on your wall before painting.</p></div>';
+      var splitNext = rowCount > 9;
+      page(header(s, logo) + '<div class="r-body"><p class="r-kicker">Paint list</p><h2>Everything you need at the store</h2>' +
+        '<p class="soft">Give the code to the paint counter. Benjamin Moore and Sherwin-Williams codes are exact. The last column is the closest color in the other brand, which is similar but not identical.</p>' +
+        '<table class="r-shop"><thead><tr><th>Opt.</th><th>Surface</th><th>Color</th><th>Code</th><th>Suggested sheen</th><th>Fan deck</th><th>Closest in other brand</th></tr></thead><tbody>' + trs + '</tbody></table>' +
+        (splitNext ? '' : nextSteps) + '</div>');
+      if (splitNext) page(header(s, logo) + '<div class="r-body">' + nextSteps.replace('class="r-next"', 'class="r-next solo"') + '</div>');
     }
 
     /* closing */
@@ -2418,8 +2439,9 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     if (ui.tool === 'fill') {
       var other = Object.keys(w.masks).filter(function (s) { return s !== ui.surface && w.masks[s][p.y * w.w + p.x]; })[0];
       if (other) {
-        toast('Essa área já é ' + R.surfaceLabel(other, state.answers.project, 'pt') + '. Use a borracha ou “Limpar superfície” para refazer.');
         ui.undo.pop();
+        toast('Essa área já está marcada como ' + R.surfaceLabel(other, state.answers.project, 'pt') +
+          '. Toque em Desfazer, baixe a Sensibilidade e marque de novo, ou use o Pincel nesta superfície.', true);
         return;
       }
       var idx = w.smartFill(p.x, p.y, +$('#tol').value, ui.surface);

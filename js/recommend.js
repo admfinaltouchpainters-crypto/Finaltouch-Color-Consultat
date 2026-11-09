@@ -86,6 +86,7 @@
     var fw = ctx.families[c.family] || 0;
     var neutralFam = { greige: 1, gray: 1, beige: 1, taupe: 1, white: 1, cream: 1 };
     if (neutralFam[c.family] && c.undertone === 'pink/red' && (a.likes || []).indexOf('pink') < 0) s -= 1.2;
+    if ((neutralFam[c.family] || c.family === 'blue') && c.undertone === 'violet' && (a.likes || []).indexOf('purple') < 0) s -= 1.5;
     s += fw * 1.4;
     if ((a.likes || []).indexOf(c.family) >= 0) why.push('it sits in the ' + F.FAMILY[c.family].en.toLowerCase() + ' family you said you love');
 
@@ -125,8 +126,9 @@
     if (moods.indexOf('cozy') >= 0 && c.temp === 'warm') s += 0.6;
     if (moods.indexOf('fresh') >= 0 && c.C < 0.07 && c.lrv > 50) s += 0.5;
     // strong, saturated colors on whole rooms are rarely what people want
-    var cmax = moods.indexOf('energetic') >= 0 ? 0.16 : (c.lrv < 25 ? 0.085 : 0.12);
-    if (c.C > cmax) s -= (c.C - cmax) * 45;
+    var cmax = moods.indexOf('energetic') >= 0 ? 0.16 : (c.lrv < 25 ? 0.08 : 0.12);
+    if (moods.indexOf('elegant') >= 0 || moods.indexOf('calm') >= 0) cmax = Math.min(cmax, 0.075);
+    if (c.C > cmax) s -= (c.C - cmax) * 120;
 
     if (a.fixed === 'warmwood' && c.temp === 'warm') { s += 0.5; why.push('it works with your warm wood and beige tones'); }
     if (a.fixed === 'coolgray' && c.temp !== 'warm') { s += 0.5; why.push('it ties in with the gray and cool stone already in the room'); }
@@ -211,17 +213,21 @@
   }
 
   function pickAccent(a, wall, pool, ctx, usedFamilies) {
-    var likes = (a.likes || []).filter(function (f) { return f !== wall.family && f !== 'white' && f !== 'cream'; });
+    var likes = (a.likes || []).filter(function (f) { return f !== 'white' && f !== 'cream'; });
     var accent = bestBy(pool, function (c) {
       if ((a.avoid || []).indexOf(c.family) >= 0) return null;
       if (c.lrv > 25 || c.lrv < 2.5) return null;
       if (F.dist(c, wall) < 0.08) return null;
-      var s = (ctx.families[c.family] || 0) * 0.8;
+      var fw = ctx.families[c.family] || 0;
+      var s = fw * 0.8;
       if (likes.indexOf(c.family) >= 0) s += 2;
+      if (!fw && likes.indexOf(c.family) < 0) s -= 2;          // a family nobody asked for
+      // a deeper shade of the wall color always works (tonal scheme)
+      var dh = Math.abs(((c.h - wall.h + 540) % 360) - 180);
+      if (wall.C > 0.02 && c.C > 0.015 && dh < 20) s += 1.8;
       if (usedFamilies[c.family]) s -= 1.2;
       s += c.popular ? 1.5 : 0;
-      if (c.C > 0.1) s -= 1.5;
-      // keep accent in harmony: same temperature or neutral
+      if (c.C > 0.09) s -= (c.C - 0.09) * 40;
       if (wall.temp !== 'neutral' && c.temp !== 'neutral' && c.temp !== wall.temp) s -= 1;
       return s;
     });
@@ -256,6 +262,9 @@
     scored.sort(function (x, y) { return y.score - x.score; });
 
     // Options A and B: best and best-different. Option C: a bolder take.
+    // when the client named favorite families, alternatives come from those first
+    var likesList = (a.likes || []).filter(function (f) { return f !== 'white' || a.depth === 'light'; });
+    function wantedFam(f) { return likesList.length ? likesList.indexOf(f) >= 0 : (ctx.families[f] || 0) > 0; }
     var top = pickDiverse(scored, 1, 0.045);
     // second option: prefer a different color family when one scores close to the leader
     if (top.length) {
@@ -263,7 +272,7 @@
       var alt = null;
       for (var k = 0; k < Math.min(scored.length, 200); k++) {
         var s2 = scored[k];
-        if (s2.c.family !== lead.c.family && s2.score >= lead.score - 4 && F.dist(s2.c, lead.c) > 0.045) { alt = s2; break; }
+        if (s2.c.family !== lead.c.family && wantedFam(s2.c.family) && s2.score >= lead.score - 4 && F.dist(s2.c, lead.c) > 0.045) { alt = s2; break; }
       }
       if (!alt) alt = pickDiverse(scored, 2, 0.045)[1];
       if (alt) top.push(alt);
@@ -288,7 +297,7 @@
       var cand = scored2[i];
       if (!top.every(function (t) { return F.dist(t.c, cand.c) > 0.06 && t.c.name !== cand.c.name; })) continue;
       if (!firstOk) firstOk = cand;
-      if (usedFam.indexOf(cand.c.family) < 0 && cand.score >= firstOk.score - 3) { bold = cand; break; }
+      if (usedFam.indexOf(cand.c.family) < 0 && wantedFam(cand.c.family) && cand.score >= firstOk.score - 3) { bold = cand; break; }
       if (cand.score < firstOk.score - 3) break;
     }
     if (!bold) bold = firstOk;

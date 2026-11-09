@@ -421,8 +421,9 @@
     if (ui.tool === 'fill') {
       var other = Object.keys(w.masks).filter(function (s) { return s !== ui.surface && w.masks[s][p.y * w.w + p.x]; })[0];
       if (other) {
-        toast('Essa área já é ' + R.surfaceLabel(other, state.answers.project, 'pt') + '. Use a borracha ou “Limpar superfície” para refazer.');
         ui.undo.pop();
+        toast('Essa área já está marcada como ' + R.surfaceLabel(other, state.answers.project, 'pt') +
+          '. Toque em Desfazer, baixe a Sensibilidade e marque de novo, ou use o Pincel nesta superfície.', true);
         return;
       }
       var idx = w.smartFill(p.x, p.y, +$('#tol').value, ui.surface);

@@ -143,15 +143,18 @@
             '<td class="soft">' + (m ? esc(m.c.name) + ' ' + esc(m.c.code) : '') + '</td></tr>';
         });
       });
-      page(header(s, logo) + '<div class="r-body"><p class="r-kicker">Paint list</p><h2>Everything you need at the store</h2>' +
-        '<p class="soft">Give the code to the paint counter. Benjamin Moore and Sherwin-Williams codes are exact. The last column is the closest color in the other brand, which is similar but not identical.</p>' +
-        '<table class="r-shop"><thead><tr><th>Opt.</th><th>Surface</th><th>Color</th><th>Code</th><th>Suggested sheen</th><th>Fan deck</th><th>Closest in other brand</th></tr></thead><tbody>' + trs + '</tbody></table>' +
-        '<div class="r-next"><h3>Next steps</h3><ol>' +
+      var rowCount = (trs.match(/<tr/g) || []).length;
+      var nextSteps = '<div class="r-next"><h3>Next steps</h3><ol>' +
         '<li>Pick your favorite option, or mix: we can swap any single color.</li>' +
         '<li>We put up large samples of your top choice so you can see them in morning and evening light.</li>' +
         '<li>We confirm colors and sheens in your written estimate, with start and finish dates.</li></ol>' +
-        '<p class="soft small">Screens and printers cannot show paint color exactly, and the photos are a visualization. Please confirm every color with a physical sample on your wall before painting.</p></div>' +
-        '</div>');
+        '<p class="soft small">Screens and printers cannot show paint color exactly, and the photos are a visualization. Please confirm every color with a physical sample on your wall before painting.</p></div>';
+      var splitNext = rowCount > 9;
+      page(header(s, logo) + '<div class="r-body"><p class="r-kicker">Paint list</p><h2>Everything you need at the store</h2>' +
+        '<p class="soft">Give the code to the paint counter. Benjamin Moore and Sherwin-Williams codes are exact. The last column is the closest color in the other brand, which is similar but not identical.</p>' +
+        '<table class="r-shop"><thead><tr><th>Opt.</th><th>Surface</th><th>Color</th><th>Code</th><th>Suggested sheen</th><th>Fan deck</th><th>Closest in other brand</th></tr></thead><tbody>' + trs + '</tbody></table>' +
+        (splitNext ? '' : nextSteps) + '</div>');
+      if (splitNext) page(header(s, logo) + '<div class="r-body">' + nextSteps.replace('class="r-next"', 'class="r-next solo"') + '</div>');
     }
 
     /* closing */
