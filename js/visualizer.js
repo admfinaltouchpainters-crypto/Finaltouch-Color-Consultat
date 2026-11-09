@@ -478,12 +478,35 @@
       var dl = (lab[q * 3] - st.L) * wl, da = lab[q * 3 + 1] - st.a, db = lab[q * 3 + 2] - st.b;
       return dl * dl + wc * (da * da + db * db);
     }
+    // smoothed label map (majority in a wide window): the model's contour without its
+    // blocky steps; used where color cannot tell the two sides apart
+    var sm = null;
+    if (opt.smooth) {
+      var Rs = opt.smooth;
+      sm = new Uint8Array(n); var smCnt = new Int32Array(n);
+      for (var k9 = 0; k9 <= K; k9++) {
+        var I2 = new Int32Array(W1 * (h + 1));
+        for (var y5 = 0; y5 < h; y5++) {
+          var acc2 = 0;
+          for (var x5 = 0; x5 < w; x5++) { acc2 += out[y5 * w + x5] === k9 ? 1 : 0; I2[(y5 + 1) * W1 + x5 + 1] = I2[y5 * W1 + x5 + 1] + acc2; }
+        }
+        for (var y6 = 0; y6 < h; y6++) {
+          var ya2 = Math.max(0, y6 - Rs), yb2 = Math.min(h, y6 + Rs + 1);
+          for (var x6 = 0; x6 < w; x6++) {
+            var xa2 = Math.max(0, x6 - Rs), xb2 = Math.min(w, x6 + Rs + 1);
+            var c9 = I2[yb2 * W1 + xb2] - I2[ya2 * W1 + xb2] - I2[yb2 * W1 + xa2] + I2[ya2 * W1 + xa2];
+            var q9 = y6 * w + x6;
+            if (c9 > smCnt[q9]) { smCnt[q9] = c9; sm[q9] = k9; }
+          }
+        }
+      }
+    }
     var final = new Uint8Array(n), D = [-R, 0, R];
     for (var q4 = 0; q4 < n; q4++) {
       var k7 = out[q4];
       if (core[q4]) { final[q4] = k7; continue; }
       // boundary band: candidate surfaces = core labels within R px (8 directions) + own label
-      var x4 = q4 % w, y4 = (q4 / w) | 0, best = 0, bd = 1e9;
+      var x4 = q4 % w, y4 = (q4 / w) | 0, best = 0, bd = 1e9, ambiguous = false;
       for (var iy = 0; iy < 3; iy++) for (var ix = 0; ix < 3; ix++) {
         var xx = x4 + D[ix], yy = y4 + D[iy];
         if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
@@ -491,8 +514,23 @@
         if (!o || !core[qq] || !stats[o].n) continue;
         var d = dist2(q4, o) / lims[o];
         if (d < bd) { bd = d; best = o; }
+        // the pixel on the opposite side: if it is not this surface but has its color,
+        // the edge is invisible in color (white wall next to white ceiling or curtain)
+        if (sm) {
+          var ox = x4 - D[ix], oy = y4 - D[iy];
+          if (ox >= 0 && oy >= 0 && ox < w && oy < h) {
+            var oq = oy * w + ox;
+            if (out[oq] !== o && dist2(oq, o) / lims[o] <= 1) ambiguous = true;
+          }
+        }
       }
       if (!best && k7 && stats[k7].n) { best = k7; bd = dist2(q4, k7) / lims[k7]; }
+      if (sm && ambiguous) {
+        // follow the smooth contour: the smoothed label wins if its color fits at all
+        var sl = sm[q4];
+        if (sl && stats[sl].n && dist2(q4, sl) / lims[sl] <= 2) final[q4] = sl;
+        continue;
+      }
       if (best && bd <= 1) final[q4] = best;
     }
     if (purge) this.purgeOddColors(final, K);
@@ -619,6 +657,7 @@
       }
     }
     return this.refineLabels(lbl, surfaces, { R: Math.max(3, Math.round(Math.max(w, h) / 220)), purge: true,
+      smooth: Math.max(6, Math.round(Math.max(w, h) / 110)),
       minFrac: { walls: 0.002, ceiling: 0.002, doors: 0.012, cabinets: 0.006, accent: 0.004 } });
   };
 
