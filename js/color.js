@@ -87,7 +87,7 @@
       // neutrals with an undertone
       if (lrv >= 74) fam = hueIn(h, 40, 105) && C > 0.022 ? 'cream' : 'white';
       else if (L < 0.36) fam = hueIn(h, 200, 290) && C > 0.018 ? 'navy' : 'black';
-      else if (hueIn(h, 225, 290)) fam = L < 0.5 && C > 0.018 ? 'navy' : (C > 0.02 ? 'blue' : 'gray');
+      else if (hueIn(h, 225, 285)) fam = L < 0.5 && C > 0.018 ? 'navy' : (C > 0.02 ? 'blue' : 'gray');
       else if (hueIn(h, 150, 225)) fam = C > 0.015 ? (L > 0.78 ? 'blue' : 'teal') : 'gray';
       else if (hueIn(h, 105, 150)) fam = C > 0.016 ? 'sage' : 'gray';
       else if (hueIn(h, 290, 20)) fam = C > 0.03 && L > 0.6 ? 'pink' : 'taupe';
@@ -100,7 +100,7 @@
       else if (hueIn(h, 80, 108)) fam = L < 0.55 ? (C < 0.09 ? 'brown' : 'sage') : (C < 0.06 ? 'beige' : 'yellow');
       else if (hueIn(h, 108, 175)) fam = C < 0.085 ? 'sage' : 'green';
       else if (hueIn(h, 175, 225)) fam = 'teal';
-      else if (hueIn(h, 225, 285)) fam = L < 0.48 ? 'navy' : 'blue';
+      else if (hueIn(h, 225, 276)) fam = L < 0.48 ? 'navy' : 'blue';
       else fam = L > 0.75 && C < 0.08 ? 'purple' : (hueIn(h, 320, 345) ? 'pink' : 'purple');
       if (fam === 'pink' && L < 0.6) fam = 'red';
     }

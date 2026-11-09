@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 190" role="img" aria-label="Final Touch Painters">
+  <defs>
+    <linearGradient id="brush" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#111111"/>
+      <stop offset="0.5" stop-color="#A2241E"/>
+      <stop offset="1" stop-color="#3C78A8"/>
+    </linearGradient>
+  </defs>
+  <!-- brushstroke: ragged ends and bristle streaks -->
+  <path fill="url(#brush)" d="M22 44 C60 30 140 26 250 25 C350 24 440 27 500 33 L494 40 L506 46 L496 53 L508 60 L497 67 L507 75 L495 82 L504 90 L492 97 L500 104 C430 112 330 116 240 116 C150 116 70 113 26 108 L34 101 L18 95 L30 88 L14 80 L28 73 L12 66 L27 58 L16 51 Z"/>
+  <g fill="#ffffff" opacity="0.07">
+    <rect x="40" y="38" width="440" height="2"/>
+    <rect x="30" y="62" width="460" height="1.5"/>
+    <rect x="50" y="90" width="430" height="2"/>
+  </g>
+  <text x="260" y="87" text-anchor="middle" font-family="'Arial Black', 'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="54" fill="#ffffff" letter-spacing="1">FINAL TOUCH</text>
+  <text x="260" y="160" text-anchor="middle" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="600" font-size="30" fill="#7a7f86" letter-spacing="16">PAINTERS</text>
+</svg>

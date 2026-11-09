@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Final Touch Color Consultant</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" href="assets/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/report.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="#interview" aria-label="Final Touch Color Consultant">
+      <img id="brandLogo" src="assets/logo.svg" alt="Final Touch Painters">
+      <span class="brand-sub">Color Consultant</span>
+    </a>
+    <nav class="steps" aria-label="Etapas">
+      <a href="#interview" data-view="interview"><b>1</b> Entrevista</a>
+      <a href="#colors" data-view="colors"><b>2</b> Cores</a>
+      <a href="#photos" data-view="photos"><b>3</b> Fotos</a>
+      <a href="#presentation" data-view="presentation"><b>4</b> Apresentação</a>
+    </nav>
+    <div class="tools">
+      <button class="ghost" id="btnCatalog" type="button" title="Procurar qualquer cor por nome ou código">Catálogo</button>
+      <button class="ghost" id="btnProjects" type="button">Projetos</button>
+      <button class="ghost" id="btnSettings" type="button">Configurações</button>
+    </div>
+  </div>
+</header>
+
+<main id="app">
+  <!-- 1. INTERVIEW -->
+  <section class="view" id="view-interview" hidden>
+    <div class="view-head">
+      <div>
+        <p class="eyebrow">Etapa 1 · Entrevista com o cliente</p>
+        <h1>O que o cliente quer sentir no espaço</h1>
+        <p class="lede">Leia a pergunta em inglês para o cliente. A tradução em cinza é só para você. Toque nas respostas.</p>
+      </div>
+      <span id="sampleBadge" class="badge" hidden>Exemplo preenchido · troque pelos dados do cliente</span>
+    </div>
+    <div class="card client-card">
+      <h2 class="card-title">Cliente</h2>
+      <div class="grid-form">
+        <label>Nome do cliente<input id="c_name" autocomplete="off" placeholder="Ex.: Sarah &amp; Mike Johnson"></label>
+        <label>Cidade<input id="c_town" autocomplete="off" placeholder="Ex.: Rumson, NJ"></label>
+        <label>Endereço<input id="c_address" autocomplete="off"></label>
+        <label>Ambiente / projeto<input id="c_space" autocomplete="off" placeholder="Ex.: Living room &amp; entry"></label>
+        <label>E-mail<input id="c_email" type="email" autocomplete="off"></label>
+        <label>Telefone<input id="c_phone" type="tel" autocomplete="off"></label>
+        <label>Data<input id="c_date" type="date"></label>
+      </div>
+    </div>
+    <div id="questions"></div>
+    <div class="actions-bar">
+      <button class="primary big" id="btnRecommend" type="button">Gerar 3 opções de cores →</button>
+    </div>
+  </section>
+
+  <!-- 2. COLORS -->
+  <section class="view" id="view-colors" hidden>
+    <div class="view-head">
+      <div>
+        <p class="eyebrow">Etapa 2 · Recomendações</p>
+        <h1>Três opções completas</h1>
+        <p class="lede">Cada opção já vem com parede, trim e teto combinando. Toque em <b>Trocar</b> para escolher outra cor. Todos os códigos são os oficiais de loja.</p>
+      </div>
+      <div class="row-gap">
+        <button class="ghost" id="btnRegenerate" type="button">Gerar de novo</button>
+        <a class="button primary" href="#photos">Ir para as fotos →</a>
+      </div>
+    </div>
+    <div id="options" class="options"></div>
+  </section>
+
+  <!-- 3. PHOTOS -->
+  <section class="view" id="view-photos" hidden>
+    <div class="view-head">
+      <div>
+        <p class="eyebrow">Etapa 3 · Visualizador</p>
+        <h1>Pintar a foto do cliente</h1>
+        <p class="lede">1) Escolha a superfície. 2) Toque na parede com a <b>Seleção inteligente</b>. 3) Ajuste com o pincel. Só o que você marcar muda de cor, o resto da foto fica igual.</p>
+      </div>
+      <div class="row-gap">
+        <label class="button primary file-btn">Adicionar fotos<input id="photoInput" type="file" accept="image/*" multiple></label>
+        <button class="ghost" id="btnSamplePhoto" type="button">Foto de exemplo</button>
+      </div>
+    </div>
+    <div class="photo-layout">
+      <aside class="photo-list" id="photoList" aria-label="Fotos do projeto"></aside>
+      <div class="stage-wrap">
+        <div class="toolbar" id="toolbar">
+          <div class="tgroup" role="group" aria-label="Superfície">
+            <span class="tlabel">Superfície</span>
+            <div id="surfaceChips" class="chips"></div>
+          </div>
+          <div class="tgroup" role="group" aria-label="Ferramenta">
+            <span class="tlabel">Ferramenta</span>
+            <div class="chips">
+              <button type="button" class="chip on" data-tool="fill">Seleção inteligente</button>
+              <button type="button" class="chip" data-tool="brush">Pincel</button>
+              <button type="button" class="chip" data-tool="erase">Borracha</button>
+            </div>
+          </div>
+          <div class="tgroup sliders">
+            <label id="tolWrap">Sensibilidade <input id="tol" type="range" min="1" max="100" value="30"><output id="tolOut">30</output></label>
+            <label id="sizeWrap" hidden>Tamanho <input id="brushSize" type="range" min="2" max="120" value="24"><output id="sizeOut">24</output></label>
+          </div>
+          <div class="tgroup">
+            <button type="button" class="ghost sm" id="btnUndo">Desfazer</button>
+            <button type="button" class="ghost sm" id="btnClearSurface">Limpar superfície</button>
+          </div>
+        </div>
+        <div class="toolbar sub">
+          <div class="tgroup" role="group" aria-label="Opção">
+            <span class="tlabel">Ver opção</span>
+            <div id="optChips" class="chips"></div>
+          </div>
+          <div class="tgroup" role="group" aria-label="Visualização">
+            <span class="tlabel">Mostrar</span>
+            <div class="chips">
+              <button type="button" class="chip on" data-show="paint">Pintado</button>
+              <button type="button" class="chip" data-show="mask">Áreas marcadas</button>
+              <button type="button" class="chip" data-show="orig">Original</button>
+            </div>
+          </div>
+          <div class="tgroup">
+            <button type="button" class="ghost sm" id="btnZoomOut" aria-label="Diminuir zoom">−</button>
+            <button type="button" class="ghost sm" id="btnZoomIn" aria-label="Aumentar zoom">+</button>
+          </div>
+        </div>
+        <div class="stage" id="stage">
+          <div class="stage-empty" id="stageEmpty">
+            <p><b>Nenhuma foto ainda.</b></p>
+            <p>Tire fotos do ambiente com boa luz, de frente para as paredes, e adicione aqui. Pode adicionar várias.</p>
+          </div>
+          <div class="canvas-box" id="canvasBox" hidden>
+            <canvas id="cv"></canvas>
+            <canvas id="cvCursor" aria-hidden="true"></canvas>
+          </div>
+        </div>
+        <div class="stage-foot">
+          <div id="coverage" class="coverage"></div>
+          <div class="row-gap">
+            <button type="button" class="ghost" id="btnAi" title="Usa a IA do Google (Gemini). Precisa de chave nas Configurações.">Gerar com IA (opcional)</button>
+            <button type="button" class="primary" id="btnRenderAll">Gerar fotos das 3 opções</button>
+          </div>
+        </div>
+        <div id="renders" class="renders"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. PRESENTATION -->
+  <section class="view" id="view-presentation" hidden>
+    <div class="view-head no-print">
+      <div>
+        <p class="eyebrow">Etapa 4 · Apresentação</p>
+        <h1>Apresentação para o cliente</h1>
+        <p class="lede">Em inglês, com a marca Final Touch. Para PDF: <b>Salvar PDF</b> → destino “Salvar como PDF”. No celular use Compartilhar → Imprimir.</p>
+      </div>
+      <div class="row-gap">
+        <label class="check"><input type="checkbox" id="optCompare" checked> Comparação lado a lado</label>
+        <label class="check"><input type="checkbox" id="optShopping" checked> Lista de compras</label>
+        <button class="primary" id="btnPrint" type="button">Salvar PDF / Imprimir</button>
+      </div>
+    </div>
+    <div id="report" class="report"></div>
+  </section>
+</main>
+
+<!-- Color picker / catalog -->
+<dialog id="dlgPicker" class="dlg wide">
+  <form method="dialog" class="dlg-in" id="pickerForm">
+    <div class="dlg-head">
+      <h2 id="pickerTitle">Catálogo de cores</h2>
+      <button class="ghost sm" value="cancel" aria-label="Fechar">Fechar</button>
+    </div>
+    <div class="picker-filters">
+      <input id="pkSearch" type="search" placeholder="Nome ou código: White Dove, OC-17, SW 7029…" autocomplete="off">
+      <select id="pkBrand" aria-label="Marca"><option value="">Todas as marcas</option><option value="BM">Benjamin Moore</option><option value="SW">Sherwin-Williams</option></select>
+      <select id="pkFamily" aria-label="Família"><option value="">Todas as famílias</option></select>
+      <label class="check"><input type="checkbox" id="pkPopular"> Só campeãs de venda</label>
+    </div>
+    <div id="pkCurrent" class="pk-current"></div>
+    <div id="pkResults" class="pk-results"></div>
+    <p class="muted small" id="pkCount"></p>
+  </form>
+</dialog>
+
+<!-- Settings -->
+<dialog id="dlgSettings" class="dlg">
+  <form method="dialog" class="dlg-in" id="settingsForm">
+    <div class="dlg-head"><h2>Configurações</h2><button class="ghost sm" value="cancel">Fechar</button></div>
+    <h3 class="sec">Empresa (aparece na apresentação)</h3>
+    <div class="grid-form">
+      <label>Empresa<input id="s_company"></label>
+      <label>Endereço<input id="s_address"></label>
+      <label>Telefone<input id="s_phone"></label>
+      <label>E-mail<input id="s_email"></label>
+      <label>Site<input id="s_web"></label>
+      <label>NJ HIC #<input id="s_hic" placeholder="Ex.: 13VH00000000"></label>
+      <label>Nome do consultor<input id="s_consultant"></label>
+      <label class="span2">Frase da marca<input id="s_tagline"></label>
+    </div>
+    <h3 class="sec">Logo</h3>
+    <div class="logo-row">
+      <img id="s_logoPreview" src="assets/logo.svg" alt="Logo atual">
+      <div>
+        <label class="button ghost file-btn">Enviar logo oficial (PNG/JPG/SVG)<input id="s_logo" type="file" accept="image/*"></label>
+        <button type="button" class="ghost sm" id="s_logoReset">Usar logo padrão</button>
+      </div>
+    </div>
+    <h3 class="sec">IA para gerar fotos (opcional)</h3>
+    <p class="muted small">O visualizador já funciona sem IA. Se quiser que a IA do Google (Gemini) gere a foto, crie uma chave grátis em aistudio.google.com → “Get API key” e cole aqui. A chave fica salva só neste aparelho.</p>
+    <div class="grid-form">
+      <label>Chave da API Gemini<input id="s_geminiKey" type="password" autocomplete="off"></label>
+      <label>Modelo<input id="s_geminiModel"></label>
+    </div>
+    <div class="dlg-foot"><button class="primary" value="save" id="btnSaveSettings">Salvar</button></div>
+  </form>
+</dialog>
+
+<!-- Projects -->
+<dialog id="dlgProjects" class="dlg">
+  <form method="dialog" class="dlg-in">
+    <div class="dlg-head"><h2>Projetos salvos</h2><button class="ghost sm" value="cancel">Fechar</button></div>
+    <p class="muted small">Os projetos ficam salvos neste aparelho automaticamente.</p>
+    <div id="projList" class="proj-list"></div>
+    <div class="dlg-foot"><button type="button" class="primary" id="btnNewProject">Novo projeto</button></div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="data/colors.js"></script>
+<script src="js/color.js"></script>
+<script src="js/questions.js"></script>
+<script src="js/recommend.js"></script>
+<script src="js/visualizer.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/store.js"></script>
+<script src="js/report.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
