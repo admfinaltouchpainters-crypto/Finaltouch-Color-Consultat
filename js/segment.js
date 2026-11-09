@@ -24,17 +24,14 @@
     });
     return libP;
   }
-  function baseUrl() {
-    var s = document.currentScript && document.currentScript.src;
-    return root.FT_MODEL_BASE || 'models/';
-  }
+  function baseUrl() { return root.FT_MODEL_BASE || 'models/'; }
   function loadModel() {
     if (modelP) return modelP;
     var base = baseUrl();
     modelP = loadTf().then(function (tf) {
       return Promise.all([
         fetch(base + 'seg-graph.json').then(function (r) { if (!r.ok) throw new Error('graph ' + r.status); return r.json(); }),
-        fetch(base + 'seg-weights.bin').then(function (r) { if (!r.ok) throw new Error('weights ' + r.status); return r.arrayBuffer(); }),
+        fetch(base + (root.FT_WEIGHTS_FILE || 'seg-weights.bin')).then(function (r) { if (!r.ok) throw new Error('weights ' + r.status); return r.arrayBuffer(); }),
         tf.ready()
       ]).then(function (res) {
         var graph = res[0], data = new Float32Array(res[1]);

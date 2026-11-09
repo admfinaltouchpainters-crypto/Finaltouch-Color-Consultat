@@ -20,6 +20,8 @@ out = "\n".join([
     fonts,
     "<style>\n" + css + "\n</style>",
     body,
+    # Claude artifacts do not serve .bin files: the weights are published there as .wasm
+    "<script>window.FT_WEIGHTS_FILE = 'seg-weights.wasm';</script>",
     js,
 ]).replace("assets/logo.svg", logo)
 dist = root / "dist"
