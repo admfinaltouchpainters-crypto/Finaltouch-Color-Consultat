@@ -614,26 +614,32 @@
     var comp = new Int32Array(n), stack = new Int32Array(n), pieces = [], id = 0;
     for (var p = 0; p < n; p++) {
       if (!final[p] || comp[p]) continue;
-      var k = final[p], sp = 0, cnt = 0, L = 0, a = 0, b = 0;
+      var k = final[p], sp = 0, cnt = 0, L = 0, a = 0, b = 0, ys = 0;
       id++; comp[p] = id; stack[sp++] = p;
       while (sp) {
-        var q = stack[--sp]; cnt++; L += lab[q * 3]; a += lab[q * 3 + 1]; b += lab[q * 3 + 2];
+        var q = stack[--sp]; cnt++; L += lab[q * 3]; a += lab[q * 3 + 1]; b += lab[q * 3 + 2]; ys += (q / w) | 0;
         var x = q % w, y = (q / w) | 0;
         if (x > 0 && final[q - 1] === k && !comp[q - 1]) { comp[q - 1] = id; stack[sp++] = q - 1; }
         if (x < w - 1 && final[q + 1] === k && !comp[q + 1]) { comp[q + 1] = id; stack[sp++] = q + 1; }
         if (y > 0 && final[q - w] === k && !comp[q - w]) { comp[q - w] = id; stack[sp++] = q - w; }
         if (y < h - 1 && final[q + w] === k && !comp[q + w]) { comp[q + w] = id; stack[sp++] = q + w; }
       }
-      pieces[id] = { k: k, n: cnt, L: L / cnt, a: a / cnt, b: b / cnt };
+      pieces[id] = { k: k, n: cnt, L: L / cnt, a: a / cnt, b: b / cnt, cy: ys / cnt / h };
     }
     var biggest = [];
-    for (var i = 1; i <= id; i++) { var pc = pieces[i]; if (!biggest[pc.k] || pc.n > biggest[pc.k].n) biggest[pc.k] = pc; }
+    for (var i = 1; i <= id; i++) {
+      var pc = pieces[i];
+      if (surfaces[pc.k - 1] === 'ceiling' && pc.cy > 0.45) continue;
+      if (!biggest[pc.k] || pc.n > biggest[pc.k].n) biggest[pc.k] = pc;
+    }
     var drop = new Uint8Array(id + 1);
     for (var j = 1; j <= id; j++) {
       var pj = pieces[j], ref = biggest[pj.k], sname = surfaces[pj.k - 1];
       var minN = n * (minFrac[sname] || 0.002);
       if (pj.n < minN) { drop[j] = 1; continue; }
-      if (pj === ref) continue;
+      // a ceiling is at the top of a photo: "ceiling" in the lower half is a rug or floor
+      if (sname === 'ceiling' && pj.cy > 0.45) { drop[j] = 1; continue; }
+      if (!ref || pj === ref) continue;
       var C = Math.sqrt(pj.a * pj.a + pj.b * pj.b), rC = Math.sqrt(ref.a * ref.a + ref.b * ref.b);
       var dh = Math.abs(Math.atan2(pj.b, pj.a) - Math.atan2(ref.b, ref.a)) * 180 / Math.PI; if (dh > 180) dh = 360 - dh;
       var strict = sname === 'doors' || sname === 'cabinets' || sname === 'trim';
