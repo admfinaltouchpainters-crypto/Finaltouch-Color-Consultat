@@ -76,10 +76,36 @@
     return true;
   }
 
+  // hue ranges (OKLCH degrees) that read as each family, used for "colors to avoid"
+  var AVOID_HUES = {
+    green: [[110, 175]], sage: [[100, 165]], teal: [[170, 220]], blue: [[215, 268]], navy: [[215, 280]],
+    purple: [[268, 335]], pink: [[335, 30]], red: [[350, 40]], orange: [[35, 80]], yellow: [[78, 112]],
+    brown: [[30, 95]], beige: [[45, 100]], taupe: [[20, 90]]
+  };
+  function looksAvoided(a, c) {
+    var avoid = a.avoid || [];
+    if (avoid.indexOf(c.family) >= 0) return true;
+    for (var i = 0; i < avoid.length; i++) {
+      var f = avoid[i], ranges = AVOID_HUES[f];
+      if (!ranges || c.C < 0.02) continue;
+      for (var j = 0; j < ranges.length; j++) {
+        var r = ranges[j], inR = r[0] <= r[1] ? c.h >= r[0] && c.h < r[1] : c.h >= r[0] || c.h < r[1];
+        if (!inR) continue;
+        if (f === 'navy' && c.L > 0.6) continue;           // light blues are not navy
+        if ((f === 'brown' || f === 'taupe') && c.L > 0.65) continue;
+        if (f === 'beige' && (c.L < 0.6 || c.C > 0.07)) continue;
+        if ((f === 'pink') && c.L < 0.6) continue;
+        if ((f === 'red') && c.L > 0.75) continue;
+        return true;
+      }
+    }
+    return false;
+  }
+
   /* Score a candidate main (wall) color. Returns {score, reasons[]} */
   function scoreWall(a, c, ctx) {
     var s = 0, why = [];
-    if ((a.avoid || []).indexOf(c.family) >= 0) return null;
+    if (looksAvoided(a, c)) return null;
     // whites only as a wall color when asked for or when the brief is very light
     if ((c.family === 'white') && (a.likes || []).indexOf('white') < 0 && a.depth !== 'light') return null;
 
@@ -129,6 +155,7 @@
     var cmax = moods.indexOf('energetic') >= 0 ? 0.16 : (c.lrv < 25 ? 0.08 : 0.12);
     if (moods.indexOf('elegant') >= 0 || moods.indexOf('calm') >= 0) cmax = Math.min(cmax, 0.075);
     if (c.C > cmax) s -= (c.C - cmax) * 120;
+    if ((moods.indexOf('elegant') >= 0 || moods.indexOf('calm') >= 0) && c.C > 0.095) return null;
 
     if (a.fixed === 'warmwood' && c.temp === 'warm') { s += 0.5; why.push('it works with your warm wood and beige tones'); }
     if (a.fixed === 'coolgray' && c.temp !== 'warm') { s += 0.5; why.push('it ties in with the gray and cool stone already in the room'); }
@@ -215,7 +242,7 @@
   function pickAccent(a, wall, pool, ctx, usedFamilies) {
     var likes = (a.likes || []).filter(function (f) { return f !== 'white' && f !== 'cream'; });
     var accent = bestBy(pool, function (c) {
-      if ((a.avoid || []).indexOf(c.family) >= 0) return null;
+      if (looksAvoided(a, c)) return null;
       if (c.lrv > 25 || c.lrv < 2.5) return null;
       if (F.dist(c, wall) < 0.08) return null;
       var fw = ctx.families[c.family] || 0;
@@ -300,6 +327,14 @@
       if (usedFam.indexOf(cand.c.family) < 0 && wantedFam(cand.c.family) && cand.score >= firstOk.score - 3) { bold = cand; break; }
       if (cand.score < firstOk.score - 3) break;
     }
+    if (!bold && likesList.length) {
+      // every liked family is already used: take another liked color that is clearly different
+      for (i = 0; i < Math.min(scored2.length, 300); i++) {
+        var c2 = scored2[i];
+        if (likesList.indexOf(c2.c.family) < 0) continue;
+        if (top.every(function (t) { return F.dist(t.c, c2.c) > 0.08 && t.c.name !== c2.c.name; })) { bold = c2; break; }
+      }
+    }
     if (!bold) bold = firstOk;
     var mains = top.slice();
     if (bold) mains.push(bold);
@@ -322,7 +357,7 @@
       var slots = {};
       var exterior = a.project === 'exterior';
       slots.walls = { c: wall, note: describe(wall, a) };
-      if (surfaces.indexOf('trim') >= 0 || exterior) slots.trim = trim;
+      if (surfaces.indexOf('trim') >= 0) slots.trim = trim;
       if (!exterior && surfaces.indexOf('ceiling') >= 0) slots.ceiling = ceiling;
       if (surfaces.indexOf('accent') >= 0) slots.accent = accent;
       if (surfaces.indexOf('doors') >= 0) slots.doors = { c: accent.c && a.trimStyle !== 'contrast' ? (trim.c && trim.c.lrv > 70 ? trim.c : accent.c) : accent.c, note: 'Doors in a semi-gloss sheen for durability.' };

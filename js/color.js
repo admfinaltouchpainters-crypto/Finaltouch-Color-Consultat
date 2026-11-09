@@ -85,7 +85,7 @@
       fam = lrv >= 74 ? 'white' : L < 0.52 ? 'black' : 'gray';
     } else if (C < 0.042 || (L < 0.42 && C < 0.05)) {
       // neutrals with an undertone
-      if (lrv >= 74) fam = hueIn(h, 40, 105) && C > 0.022 ? 'cream' : 'white';
+      if (lrv >= 74 && (C < 0.02 || hueIn(h, 40, 105))) fam = hueIn(h, 40, 105) && C > 0.022 ? 'cream' : 'white';
       else if (L < 0.36) fam = hueIn(h, 200, 290) && C > 0.018 ? 'navy' : 'black';
       else if (hueIn(h, 225, 265)) fam = L < 0.5 && C > 0.018 ? 'navy' : (C > 0.02 ? 'blue' : 'gray');
       else if (hueIn(h, 265, 320)) fam = C > 0.02 ? (L < 0.45 && h < 280 ? 'navy' : 'purple') : 'gray';

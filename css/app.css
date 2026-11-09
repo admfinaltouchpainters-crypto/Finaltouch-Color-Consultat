@@ -176,7 +176,16 @@ textarea { min-height: 90px; resize: vertical; }
 .logo-row > div { display: grid; gap: 6px; }
 .picker-filters { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: center; }
 .pk-current { display: grid; gap: 8px; }
-.pk-current:empty { display: none; }
+.pk-detail { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 14px; align-items: stretch; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.pk-big { border-radius: 8px; border: 1px solid rgba(0,0,0,.12); min-height: 120px; display: flex; align-items: flex-end; padding: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pk-info { display: grid; gap: 4px; min-width: 0; align-content: start; }
+.pk-name { font: 700 22px var(--display); }
+.pk-code { font-size: 15px; }
+.pk-copy { display: flex; gap: 6px; margin-top: 4px; }
+.pk-copy input { flex: 1; min-width: 0; font-size: 14px !important; }
+.linkish { background: none; border: 0; padding: 0; color: var(--blue); text-decoration: underline; font-weight: 600; font-size: inherit; }
+.pk.on { outline: 3px solid var(--accent); outline-offset: 1px; }
+@media (max-width: 560px) { .pk-detail { grid-template-columns: 1fr; } .pk-big { min-height: 70px; } }
 .pk-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pk-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; max-height: 52vh; overflow: auto; padding: 2px; }
 .pk { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0; overflow: hidden; display: grid; font-weight: 400; }
@@ -201,5 +210,16 @@ textarea { min-height: 90px; resize: vertical; }
   .picker-filters { grid-template-columns: 1fr 1fr; }
   .picker-filters input[type=search] { grid-column: 1 / -1; }
   .brand-sub { display: none; }
-  .tools { width: 100%; }
+  /* phones: compact header that scrolls away, so the photo gets the screen */
+  .topbar { position: static; }
+  .topbar-in { gap: 6px 10px; padding-block: 6px; }
+  .brand img { height: 32px; }
+  .steps { order: 3; width: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .steps::-webkit-scrollbar { display: none; }
+  .steps a { padding: 6px 10px; font-size: 13px; }
+  .steps a b { width: 18px; height: 18px; font-size: 11px; margin-right: 4px; }
+  .tools { margin-left: auto; gap: 4px; }
+  .tools .ghost { padding: 6px 8px; font-size: 12px; }
+  main { padding-block: 14px 60px; }
+  .stage { max-height: 62vh; }
 }

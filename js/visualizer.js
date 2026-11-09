@@ -114,64 +114,117 @@
   };
 
   /* Smart fill: grow from the clicked pixel while colors stay close to the
-     seed AND there is no sharp edge between neighbors. */
+     seed AND there is no sharp edge between neighbors. Thin lines (panel
+     moldings, siding gaps, grout) are bridged when the same color continues
+     on the other side, and small enclosed holes of the same color are closed. */
   Work.prototype.smartFill = function (sx, sy, tolerance, surface) {
-    var w = this.w, h = this.h, lab = this.lab;
+    var w = this.w, h = this.h, n = this.n, lab = this.lab;
     var tol = 0.02 + tolerance / 100 * 0.16;         // distance from seed color
     var step = Math.max(0.008, tol * 0.22);           // max jump between neighbors (edges)
     var seed = (sy * w + sx);
     var L0 = lab[seed * 3], a0 = lab[seed * 3 + 1], b0 = lab[seed * 3 + 2];
-    var seen = new Uint8Array(this.n);
     // pixels already marked as another surface are walls the fill cannot cross
+    var blocked = new Uint8Array(n);
     for (var ms in this.masks) {
       if (ms === surface) continue;
       var om = this.masks[ms];
-      for (var z = 0; z < om.length; z++) if (om[z]) seen[z] = 1;
+      for (var z = 0; z < n; z++) if (om[z]) blocked[z] = 1;
     }
-    var blockedSeed = seen[seed];
-    seen[seed] = 0;
-    var stack = new Int32Array(this.n);
+    if (blocked[seed]) return [];
+    var inR = new Uint8Array(n);       // in the region
+    var seen = new Uint8Array(n);      // queued
+    var stack = new Int32Array(n);
     var sp = 0, out = [];
-    if (blockedSeed) return [];
-    stack[sp++] = seed; seen[seed] = 1;
-    // lightness gets less weight so shading across a wall does not stop the fill
-    var wl = 0.3, wc = 4;
+    // lightness gets less weight so shading across a wall does not stop the fill;
+    // hue/chroma count more: paint color is constant while light varies
+    var wl = 0.3, wc = 4, tol2 = tol * tol, step2 = step * step, bridgeTol2 = tol2 * 0.64;
+    function seedDist2(q) {
+      var dl = (lab[q * 3] - L0) * wl, da = lab[q * 3 + 1] - a0, db = lab[q * 3 + 2] - b0;
+      return dl * dl + wc * (da * da + db * db);
+    }
+    function stepDist2(p, q) {
+      var dL = lab[q * 3] - lab[p * 3], da = lab[q * 3 + 1] - lab[p * 3 + 1], db = lab[q * 3 + 2] - lab[p * 3 + 2];
+      return dL * dL + wc * (da * da + db * db);
+    }
+    function add(q) { seen[q] = 1; stack[sp++] = q; }
+    add(seed);
+    var DX = [1, -1, 0, 0], DY = [0, 0, 1, -1];
     while (sp > 0) {
       var p = stack[--sp];
-      out.push(p);
+      if (inR[p]) continue;
+      inR[p] = 1; out.push(p);
       var px = p % w, py = (p / w) | 0;
-      var pL = lab[p * 3], pa = lab[p * 3 + 1], pb = lab[p * 3 + 2];
       for (var dir = 0; dir < 4; dir++) {
-        var nx = px + (dir === 0 ? 1 : dir === 1 ? -1 : 0);
-        var ny = py + (dir === 2 ? 1 : dir === 3 ? -1 : 0);
+        var nx = px + DX[dir], ny = py + DY[dir];
         if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
         var q = ny * w + nx;
-        if (seen[q]) continue;
-        var qL = lab[q * 3], qa = lab[q * 3 + 1], qb = lab[q * 3 + 2];
-        // hue/chroma differences count more than brightness: paint color is constant across a
-        // surface while light varies, so a change in hue is the strongest sign of an edge
-        var e1 = (qL - pL) * (qL - pL) + wc * ((qa - pa) * (qa - pa) + (qb - pb) * (qb - pb));
-        if (e1 > step * step) continue;
-        var dl = (qL - L0) * wl, e2 = dl * dl + wc * ((qa - a0) * (qa - a0) + (qb - b0) * (qb - b0));
-        if (e2 > tol * tol) continue;
-        seen[q] = 1;
-        stack[sp++] = q;
+        if (seen[q] || blocked[q]) continue;
+        if (stepDist2(p, q) <= step2 && seedDist2(q) <= tol2) { add(q); continue; }
+        // bridge a thin line: look 2..4 px further in the same direction
+        for (var k = 2; k <= 4; k++) {
+          var bx = px + DX[dir] * k, by = py + DY[dir] * k;
+          if (bx < 1 || by < 1 || bx >= w - 1 || by >= h - 1) break;
+          var r = by * w + bx;
+          if (blocked[r]) break;
+          if (seen[r]) break;
+          var r2 = r + DY[dir] * w + DX[dir];
+          // same paint on both sides of the line: close to the seed AND to the pixel before the line
+          if (seedDist2(r) <= bridgeTol2 && stepDist2(r, r2) <= step2 && stepDist2(p, r) <= step2 * 2.25) {
+            var okPath = true;
+            for (var j = 1; j < k; j++) { if (blocked[(py + DY[dir] * j) * w + px + DX[dir] * j]) { okPath = false; break; } }
+            if (!okPath) break;
+            for (var j2 = 1; j2 < k; j2++) {
+              var mid = (py + DY[dir] * j2) * w + px + DX[dir] * j2;
+              if (!inR[mid]) { inR[mid] = 1; seen[mid] = 1; out.push(mid); }
+            }
+            add(r);
+            break;
+          }
+        }
       }
     }
-    // close pinholes: include pixels with >= 3 of 4 filled neighbors
-    var extra = [];
-    for (var i = 0; i < out.length; i++) {
-      var pp = out[i], x0 = pp % w, y0 = (pp / w) | 0;
-      for (var d2 = 0; d2 < 4; d2++) {
-        var ax = x0 + (d2 === 0 ? 1 : d2 === 1 ? -1 : 0), ay = y0 + (d2 === 2 ? 1 : d2 === 3 ? -1 : 0);
-        if (ax < 1 || ay < 1 || ax >= w - 1 || ay >= h - 1) continue;
-        var r = ay * w + ax;
-        if (seen[r]) continue;
-        var c = seen[r - 1] + seen[r + 1] + seen[r - w] + seen[r + w];
-        if (c >= 3) { seen[r] = 1; extra.push(r); }
+    // close small enclosed holes whose color matches the surface (reflections, texture);
+    // objects hanging on the wall (frames, clocks) differ in color and stay out
+    if (out.length > 200) {
+      var x0 = w, y0 = h, x1 = 0, y1 = 0;
+      for (var i = 0; i < out.length; i++) {
+        var ox = out[i] % w, oy = (out[i] / w) | 0;
+        if (ox < x0) x0 = ox; if (ox > x1) x1 = ox; if (oy < y0) y0 = oy; if (oy > y1) y1 = oy;
+      }
+      var outside = new Uint8Array(n), qs = new Int32Array(n), qh = 0, qt = 0;
+      function pushOut(q) { if (!inR[q] && !outside[q]) { outside[q] = 1; qs[qt++] = q; } }
+      for (var xx = x0; xx <= x1; xx++) { pushOut(y0 * w + xx); pushOut(y1 * w + xx); }
+      for (var yy = y0; yy <= y1; yy++) { pushOut(yy * w + x0); pushOut(yy * w + x1); }
+      while (qh < qt) {
+        var o = qs[qh++], ox2 = o % w, oy2 = (o / w) | 0;
+        if (ox2 > x0) pushOut(o - 1); if (ox2 < x1) pushOut(o + 1);
+        if (oy2 > y0) pushOut(o - w); if (oy2 < y1) pushOut(o + w);
+      }
+      var maxHole = Math.max(60, out.length * 0.02), lab2 = new Uint8Array(n);
+      for (var yy2 = y0; yy2 <= y1; yy2++) {
+        for (var xx2 = x0; xx2 <= x1; xx2++) {
+          var s0 = yy2 * w + xx2;
+          if (inR[s0] || outside[s0] || lab2[s0]) continue;
+          // collect this hole
+          var comp = [s0], ci = 0, sum = 0, bad = false; lab2[s0] = 1;
+          while (ci < comp.length) {
+            var c = comp[ci++]; sum += seedDist2(c); if (blocked[c]) bad = true;
+            var cx = c % w, cy = (c / w) | 0;
+            var nb = [cx > x0 ? c - 1 : -1, cx < x1 ? c + 1 : -1, cy > y0 ? c - w : -1, cy < y1 ? c + w : -1];
+            for (var t = 0; t < 4; t++) {
+              var u = nb[t];
+              if (u < 0 || inR[u] || outside[u] || lab2[u]) continue;
+              lab2[u] = 1; comp.push(u);
+            }
+            if (comp.length > maxHole) bad = true;
+          }
+          if (!bad && sum / comp.length <= tol2 * 2.25) {
+            for (var t2 = 0; t2 < comp.length; t2++) { inR[comp[t2]] = 1; out.push(comp[t2]); }
+          }
+        }
       }
     }
-    return out.concat(extra);
+    return out;
   };
 
   Work.prototype.brush = function (s, x0, y0, x1, y1, radius, erase) {
@@ -236,6 +289,32 @@
     return c;
   };
 
+  var SMOOTH_SURFACES = { trim: 1, doors: 1, cabinets: 1 };
+
+  // 9x9 box-blurred luminance, computed once: keeps panel shadows, drops wood grain
+  Work.prototype.wideBlurY = function () {
+    if (this._wide) return this._wide;
+    var w = this.w, h = this.h, src = this.Yb, tmp = new Float32Array(this.n), out = new Float32Array(this.n), R = 4;
+    for (var y = 0; y < h; y++) {
+      var row = y * w, acc = 0, cnt = 0;
+      for (var x = -R; x < w; x++) {
+        if (x + R < w) { acc += src[row + x + R]; cnt++; }
+        if (x - R - 1 >= 0) { acc -= src[row + x - R - 1]; cnt--; }
+        if (x >= 0) tmp[row + x] = acc / cnt;
+      }
+    }
+    for (var x2 = 0; x2 < w; x2++) {
+      var acc2 = 0, cnt2 = 0;
+      for (var y2 = -R; y2 < h; y2++) {
+        if (y2 + R < h) { acc2 += tmp[(y2 + R) * w + x2]; cnt2++; }
+        if (y2 - R - 1 >= 0) { acc2 -= tmp[(y2 - R - 1) * w + x2]; cnt2--; }
+        if (y2 >= 0) out[y2 * w + x2] = acc2 / cnt2;
+      }
+    }
+    this._wide = out;
+    return out;
+  };
+
   /* Recolor. colors = { walls: '#RRGGBB', trim: ..., ... } */
   Work.prototype.render = function (colors, outImageData) {
     var src = this.orig.data, n = this.n;
@@ -255,10 +334,12 @@
       // On dark originals, fine detail is mostly sensor noise; amplifying it onto a light
       // color looks grainy, so keep less of it there.
       var detail = Math.max(0.25, Math.min(1, meanY / 0.15));
+      var smooth = SMOOTH_SURFACES[s] ? self.wideBlurY() : null;
       for (var p = 0; p < n; p++) {
         var al = a[p];
         if (al <= 0.003) continue;
-        var sh = (Yb[p] + (Y[p] - Yb[p]) * detail) / meanY;   // shading relative to the surface
+        var base = smooth ? smooth[p] + (Yb[p] - smooth[p]) * 0.45 : Yb[p];
+        var sh = (base + (Y[p] - Yb[p]) * (smooth ? detail * 0.25 : detail)) / meanY;   // shading relative to the surface
         if (sh < 0) sh = 0;
         if (sh > 2.5) sh = 2.5;
         var r = tr * sh, g = tg * sh, b = tb * sh;

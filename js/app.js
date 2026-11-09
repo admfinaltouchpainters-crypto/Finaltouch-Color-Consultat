@@ -19,6 +19,10 @@
   var toastT;
   function toast(msg, err) {
     var t = $('#toast');
+    // dialogs live in the browser's top layer, so a toast outside them would be hidden behind
+    var open = $$('dialog[open]').pop();
+    var host = open || document.body;
+    if (t.parentNode !== host) host.appendChild(t);
     t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false;
     clearTimeout(toastT); toastT = setTimeout(function () { t.hidden = true; }, err ? 6000 : 2600);
   }
@@ -59,7 +63,7 @@
     return out;
   }
 
-  var saveT;
+  var saveT, saveWarned = false;
   function persist(now) {
     clearTimeout(saveT);
     saveT = setTimeout(doSave, now ? 0 : 600);
@@ -73,13 +77,21 @@
       Object.keys(w.masks).forEach(function (s) { enc[s] = V.encodeMask(w.masks[s]); });
       ph.masks = enc;
     });
-    return S.save(state).catch(function (e) { console.warn(e); toast('Não consegui salvar neste aparelho: ' + e.message, true); });
+    return S.save(state).catch(function (e) {
+      console.warn(e);
+      if (saveWarned) return;
+      saveWarned = true;
+      toast('Este navegador não deixa salvar projetos aqui. O trabalho fica só enquanto a página estiver aberta.', true);
+    });
   }
 
   /* ---------- routing ---------- */
   var VIEWS = ['interview', 'colors', 'photos', 'presentation'];
+  var forcedView = null;
+  function routeTo(v) { forcedView = v; route(); }
   function route() {
-    var v = (location.hash || '#interview').slice(1);
+    var v = forcedView || (location.hash || '').slice(1) || 'interview';
+    forcedView = null;
     if (VIEWS.indexOf(v) < 0) v = 'interview';
     if ((v === 'colors' || v === 'photos' || v === 'presentation') && !state.options.length) {
       makeRecommendations(true);
@@ -93,7 +105,22 @@
     if (v === 'presentation') renderReport();
     window.scrollTo(0, 0);
   }
-  window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', function () {
+    var v = (location.hash || '').slice(1);
+    if (v && v !== ui.view) route();
+  });
+  function go(hash) {
+    var v = hash.slice(1);
+    ui.view = null;
+    try { if (location.hash !== hash) location.hash = hash; } catch (e) { /* sandboxed frame */ }
+    if (ui.view !== v) routeTo(v);
+  }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a[href^="#"]');
+    if (!a) return;
+    e.preventDefault();
+    go(a.getAttribute('href'));
+  });
 
   /* ---------- 1. interview ---------- */
   var CLIENT_FIELDS = ['name', 'town', 'address', 'space', 'email', 'phone', 'date'];
@@ -167,7 +194,7 @@
   }
   $('#btnRecommend').addEventListener('click', function () {
     makeRecommendations();
-    location.hash = '#colors';
+    go('#colors');
   });
   $('#btnRegenerate').addEventListener('click', function () { makeRecommendations(); renderOptions(); });
 
@@ -257,9 +284,14 @@
     state.photos.forEach(function (ph) { delete ph.renders[optId]; delete ph.ai[optId]; if (ph.useAi) delete ph.useAi[optId]; });
   }
   function copyText(t) {
-    try {
-      navigator.clipboard.writeText(t).then(function () { toast('Copiado: ' + t); }, function () { toast(t); });
-    } catch (e) { toast(t); }
+    var fallback = function () {
+      var ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.parentNode.removeChild(ta);
+      toast(ok ? 'Copiado: ' + t : t);
+    };
+    try { navigator.clipboard.writeText(t).then(function () { toast('Copiado: ' + t); }, fallback); } catch (e) { fallback(); }
   }
 
   /* ---------- color picker / catalog ---------- */
@@ -277,6 +309,7 @@
     renderPickerCurrent();
     renderPicker();
     $('#dlgPicker').showModal();
+    $('#dlgPicker').scrollTop = 0;
     setTimeout(function () { $('#pkSearch').focus(); }, 30);
   }
   function pkCard(c) {
@@ -285,14 +318,28 @@
   }
   function renderPickerCurrent() {
     var c = picker.current, el = $('#pkCurrent');
-    if (!c) { el.innerHTML = ''; return; }
-    var sim = F.nearest(c, { n: 9, exclude: c.key, filter: function (x) { return x.name !== c.name; } }).map(function (x) { return x.c; });
+    if (!c) { el.innerHTML = '<p class="muted small">Toque numa cor para ver o código, a marca, o LRV e as parecidas.</p>'; return; }
+    var sim = F.nearest(c, { n: 8, exclude: c.key, filter: function (x) { return x.name !== c.name; } }).map(function (x) { return x.c; });
     var lighter = F.nearest({ L: Math.min(0.98, c.L + 0.05), a: c.a * 0.9, b: c.b * 0.9 }, { brand: c.brand, n: 3, filter: function (x) { return x.L > c.L + 0.02; } }).map(function (x) { return x.c; });
     var darker = F.nearest({ L: c.L - 0.06, a: c.a, b: c.b }, { brand: c.brand, n: 3, filter: function (x) { return x.L < c.L - 0.02; } }).map(function (x) { return x.c; });
-    el.innerHTML = '<div class="pk-row"><b>Atual:</b> <span class="alt"><i style="background:' + c.hex + '"></i>' + esc(c.name) + ' ' + esc(c.code) + '</span></div>' +
+    var m = R.crossMatch(c);
+    var line = c.name + ' ' + c.code + ' (' + F.brandName(c.brand) + ')';
+    var under = { 'true neutral': 'neutro', 'pink/red': 'rosado/avermelhado', 'warm beige': 'bege quente', yellow: 'amarelado', green: 'esverdeado', blue: 'azulado', violet: 'violeta' }[c.undertone] || c.undertone;
+    el.innerHTML = '<div class="pk-detail">' +
+      '<div class="pk-big" style="background:' + c.hex + ';color:' + F.textOn(c) + '"><span>' + esc(c.hex) + '</span></div>' +
+      '<div class="pk-info">' +
+      '<div class="slot-surface">' + (picker.onPick ? 'Cor atual' : 'Cor selecionada') + '</div>' +
+      '<div class="pk-name">' + esc(c.name) + '</div>' +
+      '<div class="pk-code"><b>' + esc(c.code) + '</b> · ' + esc(F.brandName(c.brand)) + (c.popular ? ' · ★ campeã de vendas' : '') + '</div>' +
+      '<div class="slot-meta">LRV ' + Math.round(c.lrv) + ' (' + lrvPt(c.lrv) + ') · ' + esc(F.FAMILY[c.family].pt) + ' · subtom ' + under +
+      (c.locator ? ' · leque SW ' + esc(c.locator) : '') + (c.brand === 'SW' ? ' · ' + (c.interior && c.exterior ? 'interno e externo' : c.interior ? 'só interno' : 'só externo') : '') + '</div>' +
+      (m ? '<div class="slot-match">Mais parecida na ' + (c.brand === 'BM' ? 'Sherwin-Williams' : 'Benjamin Moore') + ': <button type="button" class="linkish" data-key="' + esc(m.c.key) + '">' + esc(m.c.name) + ' ' + esc(m.c.code) + '</button> (' + matchPt(m.d) + ')</div>' : '') +
+      '<div class="pk-copy"><input id="pkCopyText" readonly value="' + esc(line) + '" aria-label="Texto para copiar"><button type="button" class="ghost sm" id="pkCopyBtn">Copiar</button></div>' +
+      '</div></div>' +
       '<div class="pk-row"><span class="muted small">Mais clara:</span>' + lighter.map(altBtn).join('') + '<span class="muted small">Mais escura:</span>' + darker.map(altBtn).join('') + '</div>' +
       '<div class="pk-row"><span class="muted small">Parecidas (as duas marcas):</span>' + sim.map(altBtn).join('') + '</div>';
   }
+  function lrvPt(l) { return l >= 80 ? 'muito clara' : l >= 60 ? 'clara' : l >= 40 ? 'média' : l >= 20 ? 'escura' : 'muito escura'; }
   function altBtn(c) { return '<button type="button" class="alt" data-key="' + esc(c.key) + '"><i style="background:' + c.hex + '"></i>' + esc(c.name) + ' <small class="muted">' + esc(c.code) + '</small></button>'; }
   function renderPicker() {
     var q = $('#pkSearch').value.trim().toLowerCase(), qc = q.replace(/[\s-]/g, '');
@@ -330,7 +377,24 @@
     e.preventDefault();
     var c = F.get(b.dataset.key);
     if (picker.onPick) { picker.onPick(c); $('#dlgPicker').close(); toast(c.name + ' ' + c.code + ' escolhida'); }
-    else { picker.current = c; renderPickerCurrent(); copyText(c.name + ' ' + c.code + ' (' + F.brandName(c.brand) + ')' + (c.locator ? ' · fan deck ' + c.locator : '')); }
+    else {
+      picker.current = c; renderPickerCurrent();
+      $$('.pk.on', $('#pkResults')).forEach(function (x) { x.classList.remove('on'); });
+      var card = $('#pkResults [data-key="' + c.key.replace(/"/g, '') + '"]'); if (card) card.classList.add('on');
+      // bring the detail into view (on phones the list is scrolled far below it)
+      try { $('#pkCurrent').scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (err) { $('#pkCurrent').scrollIntoView(); }
+    }
+  });
+  $('#pkCurrent').addEventListener('click', function (e) {
+    if (e.target.id !== 'pkCopyBtn') return;
+    var inp = $('#pkCopyText');
+    var done = function () { toast('Copiado: ' + inp.value); };
+    var fallback = function () {
+      inp.focus(); inp.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      if (ok) done(); else toast('Texto selecionado: segure e copie');
+    };
+    try { navigator.clipboard.writeText(inp.value).then(done, fallback); } catch (err) { fallback(); }
   });
   $('#btnCatalog').addEventListener('click', function () { openPicker({ title: 'Catálogo de cores' }); });
 
@@ -540,14 +604,39 @@
     toast('Foto de exemplo criada. Toque na parede para testar.');
   });
 
+  function photoHasMarks(ph) {
+    var w = works[ph.id];
+    if (w) return Object.keys(w.masks).some(function (s) { return w.coverage(s) > 0; });
+    return Object.keys(ph.masks || {}).some(function (s) { var r = ph.masks[s] && ph.masks[s].rle; return r && r.length > 1; });
+  }
+  // Renders every option that is missing for every photo that has marked areas
+  // (after a color swap, all photos of the project get the new color, not only the open one).
+  function refreshAllRenders(force) {
+    var jobs = state.photos.filter(photoHasMarks).filter(function (ph) {
+      return force || state.options.some(function (o) { return !ph.renders[o.id]; });
+    });
+    var changed = false;
+    return jobs.reduce(function (pr, ph) {
+      return pr.then(function () { return ensureWork(ph.id); }).then(function (w) {
+        state.options.forEach(function (o) {
+          if (force || !ph.renders[o.id]) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); changed = true; }
+        });
+      });
+    }, Promise.resolve()).then(function () { if (changed) persist(); return changed; });
+  }
   function renderAll() {
     var w = works[ui.photo]; if (!w) { toast('Adicione uma foto primeiro', true); return; }
-    var ph = photoById(ui.photo);
     var hasMask = surfacesForProject().some(function (s) { return w.coverage(s) > 0; });
     if (!hasMask) { toast('Marque pelo menos a parede antes de gerar.', true); return; }
+    var btn = $('#btnRenderAll'); btn.disabled = true;
+    var ph = photoById(ui.photo);
     state.options.forEach(function (o) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); });
-    persist(); renderRenders();
-    toast('Fotos das 3 opções prontas para a apresentação');
+    refreshAllRenders(false).then(function () {
+      persist(); renderRenders();
+      var n = state.photos.filter(photoHasMarks).length;
+      toast(n > 1 ? 'Fotos das 3 opções prontas (' + n + ' fotos)' : 'Fotos das 3 opções prontas para a apresentação');
+    }).catch(function (e) { toast('Não consegui gerar: ' + e.message, true); })
+      .then(function () { btn.disabled = false; });
   }
   $('#btnRenderAll').addEventListener('click', renderAll);
 
@@ -606,11 +695,17 @@
 
   /* ---------- 4. presentation ---------- */
   function logoSrc() { return settings.logo || 'assets/logo.svg'; }
-  function renderReport() {
+  function buildReport() {
     $('#report').innerHTML = REP.build(state, {
       settings: settings, logo: logoSrc(), options: state.options.map(hydrate),
       compare: $('#optCompare').checked, shopping: $('#optShopping').checked
     });
+  }
+  function renderReport() {
+    buildReport();
+    // photos whose renders are out of date (e.g. a color was swapped) are updated here
+    refreshAllRenders(false).then(function (changed) { if (changed && ui.view === 'presentation') buildReport(); })
+      .catch(function (e) { console.warn(e); });
   }
   $('#optCompare').addEventListener('change', renderReport);
   $('#optShopping').addEventListener('change', renderReport);
@@ -673,7 +768,7 @@
     if (b.dataset.open) {
       doSave().then(function () { return S.load(b.dataset.open); }).then(function (p) {
         if (!p) return;
-        setProject(p); $('#dlgProjects').close(); toast('Projeto aberto'); location.hash = '#interview'; route();
+        setProject(p); $('#dlgProjects').close(); toast('Projeto aberto'); go('#interview');
       });
     } else if (b.dataset.remove) {
       if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar exclusão'; return; }
@@ -686,7 +781,7 @@
   $('#btnNewProject').addEventListener('click', function () {
     doSave().then(function () {
       setProject(newProject(false)); persist(true);
-      $('#dlgProjects').close(); location.hash = '#interview'; route(); toast('Novo projeto');
+      $('#dlgProjects').close(); go('#interview'); toast('Novo projeto');
     });
   });
   function setProject(p) {

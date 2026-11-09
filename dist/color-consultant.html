@@ -180,7 +180,16 @@ textarea { min-height: 90px; resize: vertical; }
 .logo-row > div { display: grid; gap: 6px; }
 .picker-filters { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: center; }
 .pk-current { display: grid; gap: 8px; }
-.pk-current:empty { display: none; }
+.pk-detail { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 14px; align-items: stretch; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.pk-big { border-radius: 8px; border: 1px solid rgba(0,0,0,.12); min-height: 120px; display: flex; align-items: flex-end; padding: 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pk-info { display: grid; gap: 4px; min-width: 0; align-content: start; }
+.pk-name { font: 700 22px var(--display); }
+.pk-code { font-size: 15px; }
+.pk-copy { display: flex; gap: 6px; margin-top: 4px; }
+.pk-copy input { flex: 1; min-width: 0; font-size: 14px !important; }
+.linkish { background: none; border: 0; padding: 0; color: var(--blue); text-decoration: underline; font-weight: 600; font-size: inherit; }
+.pk.on { outline: 3px solid var(--accent); outline-offset: 1px; }
+@media (max-width: 560px) { .pk-detail { grid-template-columns: 1fr; } .pk-big { min-height: 70px; } }
 .pk-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pk-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; max-height: 52vh; overflow: auto; padding: 2px; }
 .pk { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0; overflow: hidden; display: grid; font-weight: 400; }
@@ -205,7 +214,18 @@ textarea { min-height: 90px; resize: vertical; }
   .picker-filters { grid-template-columns: 1fr 1fr; }
   .picker-filters input[type=search] { grid-column: 1 / -1; }
   .brand-sub { display: none; }
-  .tools { width: 100%; }
+  /* phones: compact header that scrolls away, so the photo gets the screen */
+  .topbar { position: static; }
+  .topbar-in { gap: 6px 10px; padding-block: 6px; }
+  .brand img { height: 32px; }
+  .steps { order: 3; width: 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .steps::-webkit-scrollbar { display: none; }
+  .steps a { padding: 6px 10px; font-size: 13px; }
+  .steps a b { width: 18px; height: 18px; font-size: 11px; margin-right: 4px; }
+  .tools { margin-left: auto; gap: 4px; }
+  .tools .ghost { padding: 6px 8px; font-size: 12px; }
+  main { padding-block: 14px 60px; }
+  .stage { max-height: 62vh; }
 }
 
 /* Presentation pages: always light, Letter size, printed edge to edge. */
@@ -644,7 +664,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       fam = lrv >= 74 ? 'white' : L < 0.52 ? 'black' : 'gray';
     } else if (C < 0.042 || (L < 0.42 && C < 0.05)) {
       // neutrals with an undertone
-      if (lrv >= 74) fam = hueIn(h, 40, 105) && C > 0.022 ? 'cream' : 'white';
+      if (lrv >= 74 && (C < 0.02 || hueIn(h, 40, 105))) fam = hueIn(h, 40, 105) && C > 0.022 ? 'cream' : 'white';
       else if (L < 0.36) fam = hueIn(h, 200, 290) && C > 0.018 ? 'navy' : 'black';
       else if (hueIn(h, 225, 265)) fam = L < 0.5 && C > 0.018 ? 'navy' : (C > 0.02 ? 'blue' : 'gray');
       else if (hueIn(h, 265, 320)) fam = C > 0.02 ? (L < 0.45 && h < 280 ? 'navy' : 'purple') : 'gray';
@@ -1062,10 +1082,36 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     return true;
   }
 
+  // hue ranges (OKLCH degrees) that read as each family, used for "colors to avoid"
+  var AVOID_HUES = {
+    green: [[110, 175]], sage: [[100, 165]], teal: [[170, 220]], blue: [[215, 268]], navy: [[215, 280]],
+    purple: [[268, 335]], pink: [[335, 30]], red: [[350, 40]], orange: [[35, 80]], yellow: [[78, 112]],
+    brown: [[30, 95]], beige: [[45, 100]], taupe: [[20, 90]]
+  };
+  function looksAvoided(a, c) {
+    var avoid = a.avoid || [];
+    if (avoid.indexOf(c.family) >= 0) return true;
+    for (var i = 0; i < avoid.length; i++) {
+      var f = avoid[i], ranges = AVOID_HUES[f];
+      if (!ranges || c.C < 0.02) continue;
+      for (var j = 0; j < ranges.length; j++) {
+        var r = ranges[j], inR = r[0] <= r[1] ? c.h >= r[0] && c.h < r[1] : c.h >= r[0] || c.h < r[1];
+        if (!inR) continue;
+        if (f === 'navy' && c.L > 0.6) continue;           // light blues are not navy
+        if ((f === 'brown' || f === 'taupe') && c.L > 0.65) continue;
+        if (f === 'beige' && (c.L < 0.6 || c.C > 0.07)) continue;
+        if ((f === 'pink') && c.L < 0.6) continue;
+        if ((f === 'red') && c.L > 0.75) continue;
+        return true;
+      }
+    }
+    return false;
+  }
+
   /* Score a candidate main (wall) color. Returns {score, reasons[]} */
   function scoreWall(a, c, ctx) {
     var s = 0, why = [];
-    if ((a.avoid || []).indexOf(c.family) >= 0) return null;
+    if (looksAvoided(a, c)) return null;
     // whites only as a wall color when asked for or when the brief is very light
     if ((c.family === 'white') && (a.likes || []).indexOf('white') < 0 && a.depth !== 'light') return null;
 
@@ -1115,6 +1161,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     var cmax = moods.indexOf('energetic') >= 0 ? 0.16 : (c.lrv < 25 ? 0.08 : 0.12);
     if (moods.indexOf('elegant') >= 0 || moods.indexOf('calm') >= 0) cmax = Math.min(cmax, 0.075);
     if (c.C > cmax) s -= (c.C - cmax) * 120;
+    if ((moods.indexOf('elegant') >= 0 || moods.indexOf('calm') >= 0) && c.C > 0.095) return null;
 
     if (a.fixed === 'warmwood' && c.temp === 'warm') { s += 0.5; why.push('it works with your warm wood and beige tones'); }
     if (a.fixed === 'coolgray' && c.temp !== 'warm') { s += 0.5; why.push('it ties in with the gray and cool stone already in the room'); }
@@ -1201,7 +1248,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   function pickAccent(a, wall, pool, ctx, usedFamilies) {
     var likes = (a.likes || []).filter(function (f) { return f !== 'white' && f !== 'cream'; });
     var accent = bestBy(pool, function (c) {
-      if ((a.avoid || []).indexOf(c.family) >= 0) return null;
+      if (looksAvoided(a, c)) return null;
       if (c.lrv > 25 || c.lrv < 2.5) return null;
       if (F.dist(c, wall) < 0.08) return null;
       var fw = ctx.families[c.family] || 0;
@@ -1286,6 +1333,14 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       if (usedFam.indexOf(cand.c.family) < 0 && wantedFam(cand.c.family) && cand.score >= firstOk.score - 3) { bold = cand; break; }
       if (cand.score < firstOk.score - 3) break;
     }
+    if (!bold && likesList.length) {
+      // every liked family is already used: take another liked color that is clearly different
+      for (i = 0; i < Math.min(scored2.length, 300); i++) {
+        var c2 = scored2[i];
+        if (likesList.indexOf(c2.c.family) < 0) continue;
+        if (top.every(function (t) { return F.dist(t.c, c2.c) > 0.08 && t.c.name !== c2.c.name; })) { bold = c2; break; }
+      }
+    }
     if (!bold) bold = firstOk;
     var mains = top.slice();
     if (bold) mains.push(bold);
@@ -1308,7 +1363,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       var slots = {};
       var exterior = a.project === 'exterior';
       slots.walls = { c: wall, note: describe(wall, a) };
-      if (surfaces.indexOf('trim') >= 0 || exterior) slots.trim = trim;
+      if (surfaces.indexOf('trim') >= 0) slots.trim = trim;
       if (!exterior && surfaces.indexOf('ceiling') >= 0) slots.ceiling = ceiling;
       if (surfaces.indexOf('accent') >= 0) slots.accent = accent;
       if (surfaces.indexOf('doors') >= 0) slots.doors = { c: accent.c && a.trimStyle !== 'contrast' ? (trim.c && trim.c.lrv > 70 ? trim.c : accent.c) : accent.c, note: 'Doors in a semi-gloss sheen for durability.' };
@@ -1482,64 +1537,117 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   };
 
   /* Smart fill: grow from the clicked pixel while colors stay close to the
-     seed AND there is no sharp edge between neighbors. */
+     seed AND there is no sharp edge between neighbors. Thin lines (panel
+     moldings, siding gaps, grout) are bridged when the same color continues
+     on the other side, and small enclosed holes of the same color are closed. */
   Work.prototype.smartFill = function (sx, sy, tolerance, surface) {
-    var w = this.w, h = this.h, lab = this.lab;
+    var w = this.w, h = this.h, n = this.n, lab = this.lab;
     var tol = 0.02 + tolerance / 100 * 0.16;         // distance from seed color
     var step = Math.max(0.008, tol * 0.22);           // max jump between neighbors (edges)
     var seed = (sy * w + sx);
     var L0 = lab[seed * 3], a0 = lab[seed * 3 + 1], b0 = lab[seed * 3 + 2];
-    var seen = new Uint8Array(this.n);
     // pixels already marked as another surface are walls the fill cannot cross
+    var blocked = new Uint8Array(n);
     for (var ms in this.masks) {
       if (ms === surface) continue;
       var om = this.masks[ms];
-      for (var z = 0; z < om.length; z++) if (om[z]) seen[z] = 1;
+      for (var z = 0; z < n; z++) if (om[z]) blocked[z] = 1;
     }
-    var blockedSeed = seen[seed];
-    seen[seed] = 0;
-    var stack = new Int32Array(this.n);
+    if (blocked[seed]) return [];
+    var inR = new Uint8Array(n);       // in the region
+    var seen = new Uint8Array(n);      // queued
+    var stack = new Int32Array(n);
     var sp = 0, out = [];
-    if (blockedSeed) return [];
-    stack[sp++] = seed; seen[seed] = 1;
-    // lightness gets less weight so shading across a wall does not stop the fill
-    var wl = 0.3, wc = 4;
+    // lightness gets less weight so shading across a wall does not stop the fill;
+    // hue/chroma count more: paint color is constant while light varies
+    var wl = 0.3, wc = 4, tol2 = tol * tol, step2 = step * step, bridgeTol2 = tol2 * 0.64;
+    function seedDist2(q) {
+      var dl = (lab[q * 3] - L0) * wl, da = lab[q * 3 + 1] - a0, db = lab[q * 3 + 2] - b0;
+      return dl * dl + wc * (da * da + db * db);
+    }
+    function stepDist2(p, q) {
+      var dL = lab[q * 3] - lab[p * 3], da = lab[q * 3 + 1] - lab[p * 3 + 1], db = lab[q * 3 + 2] - lab[p * 3 + 2];
+      return dL * dL + wc * (da * da + db * db);
+    }
+    function add(q) { seen[q] = 1; stack[sp++] = q; }
+    add(seed);
+    var DX = [1, -1, 0, 0], DY = [0, 0, 1, -1];
     while (sp > 0) {
       var p = stack[--sp];
-      out.push(p);
+      if (inR[p]) continue;
+      inR[p] = 1; out.push(p);
       var px = p % w, py = (p / w) | 0;
-      var pL = lab[p * 3], pa = lab[p * 3 + 1], pb = lab[p * 3 + 2];
       for (var dir = 0; dir < 4; dir++) {
-        var nx = px + (dir === 0 ? 1 : dir === 1 ? -1 : 0);
-        var ny = py + (dir === 2 ? 1 : dir === 3 ? -1 : 0);
+        var nx = px + DX[dir], ny = py + DY[dir];
         if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
         var q = ny * w + nx;
-        if (seen[q]) continue;
-        var qL = lab[q * 3], qa = lab[q * 3 + 1], qb = lab[q * 3 + 2];
-        // hue/chroma differences count more than brightness: paint color is constant across a
-        // surface while light varies, so a change in hue is the strongest sign of an edge
-        var e1 = (qL - pL) * (qL - pL) + wc * ((qa - pa) * (qa - pa) + (qb - pb) * (qb - pb));
-        if (e1 > step * step) continue;
-        var dl = (qL - L0) * wl, e2 = dl * dl + wc * ((qa - a0) * (qa - a0) + (qb - b0) * (qb - b0));
-        if (e2 > tol * tol) continue;
-        seen[q] = 1;
-        stack[sp++] = q;
+        if (seen[q] || blocked[q]) continue;
+        if (stepDist2(p, q) <= step2 && seedDist2(q) <= tol2) { add(q); continue; }
+        // bridge a thin line: look 2..4 px further in the same direction
+        for (var k = 2; k <= 4; k++) {
+          var bx = px + DX[dir] * k, by = py + DY[dir] * k;
+          if (bx < 1 || by < 1 || bx >= w - 1 || by >= h - 1) break;
+          var r = by * w + bx;
+          if (blocked[r]) break;
+          if (seen[r]) break;
+          var r2 = r + DY[dir] * w + DX[dir];
+          // same paint on both sides of the line: close to the seed AND to the pixel before the line
+          if (seedDist2(r) <= bridgeTol2 && stepDist2(r, r2) <= step2 && stepDist2(p, r) <= step2 * 2.25) {
+            var okPath = true;
+            for (var j = 1; j < k; j++) { if (blocked[(py + DY[dir] * j) * w + px + DX[dir] * j]) { okPath = false; break; } }
+            if (!okPath) break;
+            for (var j2 = 1; j2 < k; j2++) {
+              var mid = (py + DY[dir] * j2) * w + px + DX[dir] * j2;
+              if (!inR[mid]) { inR[mid] = 1; seen[mid] = 1; out.push(mid); }
+            }
+            add(r);
+            break;
+          }
+        }
       }
     }
-    // close pinholes: include pixels with >= 3 of 4 filled neighbors
-    var extra = [];
-    for (var i = 0; i < out.length; i++) {
-      var pp = out[i], x0 = pp % w, y0 = (pp / w) | 0;
-      for (var d2 = 0; d2 < 4; d2++) {
-        var ax = x0 + (d2 === 0 ? 1 : d2 === 1 ? -1 : 0), ay = y0 + (d2 === 2 ? 1 : d2 === 3 ? -1 : 0);
-        if (ax < 1 || ay < 1 || ax >= w - 1 || ay >= h - 1) continue;
-        var r = ay * w + ax;
-        if (seen[r]) continue;
-        var c = seen[r - 1] + seen[r + 1] + seen[r - w] + seen[r + w];
-        if (c >= 3) { seen[r] = 1; extra.push(r); }
+    // close small enclosed holes whose color matches the surface (reflections, texture);
+    // objects hanging on the wall (frames, clocks) differ in color and stay out
+    if (out.length > 200) {
+      var x0 = w, y0 = h, x1 = 0, y1 = 0;
+      for (var i = 0; i < out.length; i++) {
+        var ox = out[i] % w, oy = (out[i] / w) | 0;
+        if (ox < x0) x0 = ox; if (ox > x1) x1 = ox; if (oy < y0) y0 = oy; if (oy > y1) y1 = oy;
+      }
+      var outside = new Uint8Array(n), qs = new Int32Array(n), qh = 0, qt = 0;
+      function pushOut(q) { if (!inR[q] && !outside[q]) { outside[q] = 1; qs[qt++] = q; } }
+      for (var xx = x0; xx <= x1; xx++) { pushOut(y0 * w + xx); pushOut(y1 * w + xx); }
+      for (var yy = y0; yy <= y1; yy++) { pushOut(yy * w + x0); pushOut(yy * w + x1); }
+      while (qh < qt) {
+        var o = qs[qh++], ox2 = o % w, oy2 = (o / w) | 0;
+        if (ox2 > x0) pushOut(o - 1); if (ox2 < x1) pushOut(o + 1);
+        if (oy2 > y0) pushOut(o - w); if (oy2 < y1) pushOut(o + w);
+      }
+      var maxHole = Math.max(60, out.length * 0.02), lab2 = new Uint8Array(n);
+      for (var yy2 = y0; yy2 <= y1; yy2++) {
+        for (var xx2 = x0; xx2 <= x1; xx2++) {
+          var s0 = yy2 * w + xx2;
+          if (inR[s0] || outside[s0] || lab2[s0]) continue;
+          // collect this hole
+          var comp = [s0], ci = 0, sum = 0, bad = false; lab2[s0] = 1;
+          while (ci < comp.length) {
+            var c = comp[ci++]; sum += seedDist2(c); if (blocked[c]) bad = true;
+            var cx = c % w, cy = (c / w) | 0;
+            var nb = [cx > x0 ? c - 1 : -1, cx < x1 ? c + 1 : -1, cy > y0 ? c - w : -1, cy < y1 ? c + w : -1];
+            for (var t = 0; t < 4; t++) {
+              var u = nb[t];
+              if (u < 0 || inR[u] || outside[u] || lab2[u]) continue;
+              lab2[u] = 1; comp.push(u);
+            }
+            if (comp.length > maxHole) bad = true;
+          }
+          if (!bad && sum / comp.length <= tol2 * 2.25) {
+            for (var t2 = 0; t2 < comp.length; t2++) { inR[comp[t2]] = 1; out.push(comp[t2]); }
+          }
+        }
       }
     }
-    return out.concat(extra);
+    return out;
   };
 
   Work.prototype.brush = function (s, x0, y0, x1, y1, radius, erase) {
@@ -1604,6 +1712,32 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     return c;
   };
 
+  var SMOOTH_SURFACES = { trim: 1, doors: 1, cabinets: 1 };
+
+  // 9x9 box-blurred luminance, computed once: keeps panel shadows, drops wood grain
+  Work.prototype.wideBlurY = function () {
+    if (this._wide) return this._wide;
+    var w = this.w, h = this.h, src = this.Yb, tmp = new Float32Array(this.n), out = new Float32Array(this.n), R = 4;
+    for (var y = 0; y < h; y++) {
+      var row = y * w, acc = 0, cnt = 0;
+      for (var x = -R; x < w; x++) {
+        if (x + R < w) { acc += src[row + x + R]; cnt++; }
+        if (x - R - 1 >= 0) { acc -= src[row + x - R - 1]; cnt--; }
+        if (x >= 0) tmp[row + x] = acc / cnt;
+      }
+    }
+    for (var x2 = 0; x2 < w; x2++) {
+      var acc2 = 0, cnt2 = 0;
+      for (var y2 = -R; y2 < h; y2++) {
+        if (y2 + R < h) { acc2 += tmp[(y2 + R) * w + x2]; cnt2++; }
+        if (y2 - R - 1 >= 0) { acc2 -= tmp[(y2 - R - 1) * w + x2]; cnt2--; }
+        if (y2 >= 0) out[y2 * w + x2] = acc2 / cnt2;
+      }
+    }
+    this._wide = out;
+    return out;
+  };
+
   /* Recolor. colors = { walls: '#RRGGBB', trim: ..., ... } */
   Work.prototype.render = function (colors, outImageData) {
     var src = this.orig.data, n = this.n;
@@ -1623,10 +1757,12 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       // On dark originals, fine detail is mostly sensor noise; amplifying it onto a light
       // color looks grainy, so keep less of it there.
       var detail = Math.max(0.25, Math.min(1, meanY / 0.15));
+      var smooth = SMOOTH_SURFACES[s] ? self.wideBlurY() : null;
       for (var p = 0; p < n; p++) {
         var al = a[p];
         if (al <= 0.003) continue;
-        var sh = (Yb[p] + (Y[p] - Yb[p]) * detail) / meanY;   // shading relative to the surface
+        var base = smooth ? smooth[p] + (Yb[p] - smooth[p]) * 0.45 : Yb[p];
+        var sh = (base + (Y[p] - Yb[p]) * (smooth ? detail * 0.25 : detail)) / meanY;   // shading relative to the surface
         if (sh < 0) sh = 0;
         if (sh > 2.5) sh = 2.5;
         var r = tr * sh, g = tg * sh, b = tb * sh;
@@ -2037,6 +2173,10 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   var toastT;
   function toast(msg, err) {
     var t = $('#toast');
+    // dialogs live in the browser's top layer, so a toast outside them would be hidden behind
+    var open = $$('dialog[open]').pop();
+    var host = open || document.body;
+    if (t.parentNode !== host) host.appendChild(t);
     t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false;
     clearTimeout(toastT); toastT = setTimeout(function () { t.hidden = true; }, err ? 6000 : 2600);
   }
@@ -2077,7 +2217,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     return out;
   }
 
-  var saveT;
+  var saveT, saveWarned = false;
   function persist(now) {
     clearTimeout(saveT);
     saveT = setTimeout(doSave, now ? 0 : 600);
@@ -2091,13 +2231,21 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       Object.keys(w.masks).forEach(function (s) { enc[s] = V.encodeMask(w.masks[s]); });
       ph.masks = enc;
     });
-    return S.save(state).catch(function (e) { console.warn(e); toast('Não consegui salvar neste aparelho: ' + e.message, true); });
+    return S.save(state).catch(function (e) {
+      console.warn(e);
+      if (saveWarned) return;
+      saveWarned = true;
+      toast('Este navegador não deixa salvar projetos aqui. O trabalho fica só enquanto a página estiver aberta.', true);
+    });
   }
 
   /* ---------- routing ---------- */
   var VIEWS = ['interview', 'colors', 'photos', 'presentation'];
+  var forcedView = null;
+  function routeTo(v) { forcedView = v; route(); }
   function route() {
-    var v = (location.hash || '#interview').slice(1);
+    var v = forcedView || (location.hash || '').slice(1) || 'interview';
+    forcedView = null;
     if (VIEWS.indexOf(v) < 0) v = 'interview';
     if ((v === 'colors' || v === 'photos' || v === 'presentation') && !state.options.length) {
       makeRecommendations(true);
@@ -2111,7 +2259,22 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     if (v === 'presentation') renderReport();
     window.scrollTo(0, 0);
   }
-  window.addEventListener('hashchange', route);
+  window.addEventListener('hashchange', function () {
+    var v = (location.hash || '').slice(1);
+    if (v && v !== ui.view) route();
+  });
+  function go(hash) {
+    var v = hash.slice(1);
+    ui.view = null;
+    try { if (location.hash !== hash) location.hash = hash; } catch (e) { /* sandboxed frame */ }
+    if (ui.view !== v) routeTo(v);
+  }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a[href^="#"]');
+    if (!a) return;
+    e.preventDefault();
+    go(a.getAttribute('href'));
+  });
 
   /* ---------- 1. interview ---------- */
   var CLIENT_FIELDS = ['name', 'town', 'address', 'space', 'email', 'phone', 'date'];
@@ -2185,7 +2348,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   }
   $('#btnRecommend').addEventListener('click', function () {
     makeRecommendations();
-    location.hash = '#colors';
+    go('#colors');
   });
   $('#btnRegenerate').addEventListener('click', function () { makeRecommendations(); renderOptions(); });
 
@@ -2275,9 +2438,14 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     state.photos.forEach(function (ph) { delete ph.renders[optId]; delete ph.ai[optId]; if (ph.useAi) delete ph.useAi[optId]; });
   }
   function copyText(t) {
-    try {
-      navigator.clipboard.writeText(t).then(function () { toast('Copiado: ' + t); }, function () { toast(t); });
-    } catch (e) { toast(t); }
+    var fallback = function () {
+      var ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.parentNode.removeChild(ta);
+      toast(ok ? 'Copiado: ' + t : t);
+    };
+    try { navigator.clipboard.writeText(t).then(function () { toast('Copiado: ' + t); }, fallback); } catch (e) { fallback(); }
   }
 
   /* ---------- color picker / catalog ---------- */
@@ -2295,6 +2463,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     renderPickerCurrent();
     renderPicker();
     $('#dlgPicker').showModal();
+    $('#dlgPicker').scrollTop = 0;
     setTimeout(function () { $('#pkSearch').focus(); }, 30);
   }
   function pkCard(c) {
@@ -2303,14 +2472,28 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   }
   function renderPickerCurrent() {
     var c = picker.current, el = $('#pkCurrent');
-    if (!c) { el.innerHTML = ''; return; }
-    var sim = F.nearest(c, { n: 9, exclude: c.key, filter: function (x) { return x.name !== c.name; } }).map(function (x) { return x.c; });
+    if (!c) { el.innerHTML = '<p class="muted small">Toque numa cor para ver o código, a marca, o LRV e as parecidas.</p>'; return; }
+    var sim = F.nearest(c, { n: 8, exclude: c.key, filter: function (x) { return x.name !== c.name; } }).map(function (x) { return x.c; });
     var lighter = F.nearest({ L: Math.min(0.98, c.L + 0.05), a: c.a * 0.9, b: c.b * 0.9 }, { brand: c.brand, n: 3, filter: function (x) { return x.L > c.L + 0.02; } }).map(function (x) { return x.c; });
     var darker = F.nearest({ L: c.L - 0.06, a: c.a, b: c.b }, { brand: c.brand, n: 3, filter: function (x) { return x.L < c.L - 0.02; } }).map(function (x) { return x.c; });
-    el.innerHTML = '<div class="pk-row"><b>Atual:</b> <span class="alt"><i style="background:' + c.hex + '"></i>' + esc(c.name) + ' ' + esc(c.code) + '</span></div>' +
+    var m = R.crossMatch(c);
+    var line = c.name + ' ' + c.code + ' (' + F.brandName(c.brand) + ')';
+    var under = { 'true neutral': 'neutro', 'pink/red': 'rosado/avermelhado', 'warm beige': 'bege quente', yellow: 'amarelado', green: 'esverdeado', blue: 'azulado', violet: 'violeta' }[c.undertone] || c.undertone;
+    el.innerHTML = '<div class="pk-detail">' +
+      '<div class="pk-big" style="background:' + c.hex + ';color:' + F.textOn(c) + '"><span>' + esc(c.hex) + '</span></div>' +
+      '<div class="pk-info">' +
+      '<div class="slot-surface">' + (picker.onPick ? 'Cor atual' : 'Cor selecionada') + '</div>' +
+      '<div class="pk-name">' + esc(c.name) + '</div>' +
+      '<div class="pk-code"><b>' + esc(c.code) + '</b> · ' + esc(F.brandName(c.brand)) + (c.popular ? ' · ★ campeã de vendas' : '') + '</div>' +
+      '<div class="slot-meta">LRV ' + Math.round(c.lrv) + ' (' + lrvPt(c.lrv) + ') · ' + esc(F.FAMILY[c.family].pt) + ' · subtom ' + under +
+      (c.locator ? ' · leque SW ' + esc(c.locator) : '') + (c.brand === 'SW' ? ' · ' + (c.interior && c.exterior ? 'interno e externo' : c.interior ? 'só interno' : 'só externo') : '') + '</div>' +
+      (m ? '<div class="slot-match">Mais parecida na ' + (c.brand === 'BM' ? 'Sherwin-Williams' : 'Benjamin Moore') + ': <button type="button" class="linkish" data-key="' + esc(m.c.key) + '">' + esc(m.c.name) + ' ' + esc(m.c.code) + '</button> (' + matchPt(m.d) + ')</div>' : '') +
+      '<div class="pk-copy"><input id="pkCopyText" readonly value="' + esc(line) + '" aria-label="Texto para copiar"><button type="button" class="ghost sm" id="pkCopyBtn">Copiar</button></div>' +
+      '</div></div>' +
       '<div class="pk-row"><span class="muted small">Mais clara:</span>' + lighter.map(altBtn).join('') + '<span class="muted small">Mais escura:</span>' + darker.map(altBtn).join('') + '</div>' +
       '<div class="pk-row"><span class="muted small">Parecidas (as duas marcas):</span>' + sim.map(altBtn).join('') + '</div>';
   }
+  function lrvPt(l) { return l >= 80 ? 'muito clara' : l >= 60 ? 'clara' : l >= 40 ? 'média' : l >= 20 ? 'escura' : 'muito escura'; }
   function altBtn(c) { return '<button type="button" class="alt" data-key="' + esc(c.key) + '"><i style="background:' + c.hex + '"></i>' + esc(c.name) + ' <small class="muted">' + esc(c.code) + '</small></button>'; }
   function renderPicker() {
     var q = $('#pkSearch').value.trim().toLowerCase(), qc = q.replace(/[\s-]/g, '');
@@ -2348,7 +2531,24 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     e.preventDefault();
     var c = F.get(b.dataset.key);
     if (picker.onPick) { picker.onPick(c); $('#dlgPicker').close(); toast(c.name + ' ' + c.code + ' escolhida'); }
-    else { picker.current = c; renderPickerCurrent(); copyText(c.name + ' ' + c.code + ' (' + F.brandName(c.brand) + ')' + (c.locator ? ' · fan deck ' + c.locator : '')); }
+    else {
+      picker.current = c; renderPickerCurrent();
+      $$('.pk.on', $('#pkResults')).forEach(function (x) { x.classList.remove('on'); });
+      var card = $('#pkResults [data-key="' + c.key.replace(/"/g, '') + '"]'); if (card) card.classList.add('on');
+      // bring the detail into view (on phones the list is scrolled far below it)
+      try { $('#pkCurrent').scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (err) { $('#pkCurrent').scrollIntoView(); }
+    }
+  });
+  $('#pkCurrent').addEventListener('click', function (e) {
+    if (e.target.id !== 'pkCopyBtn') return;
+    var inp = $('#pkCopyText');
+    var done = function () { toast('Copiado: ' + inp.value); };
+    var fallback = function () {
+      inp.focus(); inp.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+      if (ok) done(); else toast('Texto selecionado: segure e copie');
+    };
+    try { navigator.clipboard.writeText(inp.value).then(done, fallback); } catch (err) { fallback(); }
   });
   $('#btnCatalog').addEventListener('click', function () { openPicker({ title: 'Catálogo de cores' }); });
 
@@ -2558,14 +2758,39 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     toast('Foto de exemplo criada. Toque na parede para testar.');
   });
 
+  function photoHasMarks(ph) {
+    var w = works[ph.id];
+    if (w) return Object.keys(w.masks).some(function (s) { return w.coverage(s) > 0; });
+    return Object.keys(ph.masks || {}).some(function (s) { var r = ph.masks[s] && ph.masks[s].rle; return r && r.length > 1; });
+  }
+  // Renders every option that is missing for every photo that has marked areas
+  // (after a color swap, all photos of the project get the new color, not only the open one).
+  function refreshAllRenders(force) {
+    var jobs = state.photos.filter(photoHasMarks).filter(function (ph) {
+      return force || state.options.some(function (o) { return !ph.renders[o.id]; });
+    });
+    var changed = false;
+    return jobs.reduce(function (pr, ph) {
+      return pr.then(function () { return ensureWork(ph.id); }).then(function (w) {
+        state.options.forEach(function (o) {
+          if (force || !ph.renders[o.id]) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); changed = true; }
+        });
+      });
+    }, Promise.resolve()).then(function () { if (changed) persist(); return changed; });
+  }
   function renderAll() {
     var w = works[ui.photo]; if (!w) { toast('Adicione uma foto primeiro', true); return; }
-    var ph = photoById(ui.photo);
     var hasMask = surfacesForProject().some(function (s) { return w.coverage(s) > 0; });
     if (!hasMask) { toast('Marque pelo menos a parede antes de gerar.', true); return; }
+    var btn = $('#btnRenderAll'); btn.disabled = true;
+    var ph = photoById(ui.photo);
     state.options.forEach(function (o) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); });
-    persist(); renderRenders();
-    toast('Fotos das 3 opções prontas para a apresentação');
+    refreshAllRenders(false).then(function () {
+      persist(); renderRenders();
+      var n = state.photos.filter(photoHasMarks).length;
+      toast(n > 1 ? 'Fotos das 3 opções prontas (' + n + ' fotos)' : 'Fotos das 3 opções prontas para a apresentação');
+    }).catch(function (e) { toast('Não consegui gerar: ' + e.message, true); })
+      .then(function () { btn.disabled = false; });
   }
   $('#btnRenderAll').addEventListener('click', renderAll);
 
@@ -2624,11 +2849,17 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
 
   /* ---------- 4. presentation ---------- */
   function logoSrc() { return settings.logo || 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MjAgMTkwIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkZpbmFsIFRvdWNoIFBhaW50ZXJzIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYnJ1c2giIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIwIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMTExMTExIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMC41IiBzdG9wLWNvbG9yPSIjQTIyNDFFIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzNDNzhBOCIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPCEtLSBicnVzaHN0cm9rZTogcmFnZ2VkIGVuZHMgYW5kIGJyaXN0bGUgc3RyZWFrcyAtLT4KICA8cGF0aCBmaWxsPSJ1cmwoI2JydXNoKSIgZD0iTTIyIDQ0IEM2MCAzMCAxNDAgMjYgMjUwIDI1IEMzNTAgMjQgNDQwIDI3IDUwMCAzMyBMNDk0IDQwIEw1MDYgNDYgTDQ5NiA1MyBMNTA4IDYwIEw0OTcgNjcgTDUwNyA3NSBMNDk1IDgyIEw1MDQgOTAgTDQ5MiA5NyBMNTAwIDEwNCBDNDMwIDExMiAzMzAgMTE2IDI0MCAxMTYgQzE1MCAxMTYgNzAgMTEzIDI2IDEwOCBMMzQgMTAxIEwxOCA5NSBMMzAgODggTDE0IDgwIEwyOCA3MyBMMTIgNjYgTDI3IDU4IEwxNiA1MSBaIi8+CiAgPGcgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC4wNyI+CiAgICA8cmVjdCB4PSI0MCIgeT0iMzgiIHdpZHRoPSI0NDAiIGhlaWdodD0iMiIvPgogICAgPHJlY3QgeD0iMzAiIHk9IjYyIiB3aWR0aD0iNDYwIiBoZWlnaHQ9IjEuNSIvPgogICAgPHJlY3QgeD0iNTAiIHk9IjkwIiB3aWR0aD0iNDMwIiBoZWlnaHQ9IjIiLz4KICA8L2c+CiAgPHRleHQgeD0iMjYwIiB5PSI4NyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IidBcmlhbCBCbGFjaycsICdIZWx2ZXRpY2EgTmV1ZScsIEFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iOTAwIiBmb250LXNpemU9IjU0IiBmaWxsPSIjZmZmZmZmIiBsZXR0ZXItc3BhY2luZz0iMSI+RklOQUwgVE9VQ0g8L3RleHQ+CiAgPHRleHQgeD0iMjYwIiB5PSIxNjAiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSInSGVsdmV0aWNhIE5ldWUnLCBBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjYwMCIgZm9udC1zaXplPSIzMCIgZmlsbD0iIzdhN2Y4NiIgbGV0dGVyLXNwYWNpbmc9IjE2Ij5QQUlOVEVSUzwvdGV4dD4KPC9zdmc+Cg=='; }
-  function renderReport() {
+  function buildReport() {
     $('#report').innerHTML = REP.build(state, {
       settings: settings, logo: logoSrc(), options: state.options.map(hydrate),
       compare: $('#optCompare').checked, shopping: $('#optShopping').checked
     });
+  }
+  function renderReport() {
+    buildReport();
+    // photos whose renders are out of date (e.g. a color was swapped) are updated here
+    refreshAllRenders(false).then(function (changed) { if (changed && ui.view === 'presentation') buildReport(); })
+      .catch(function (e) { console.warn(e); });
   }
   $('#optCompare').addEventListener('change', renderReport);
   $('#optShopping').addEventListener('change', renderReport);
@@ -2691,7 +2922,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     if (b.dataset.open) {
       doSave().then(function () { return S.load(b.dataset.open); }).then(function (p) {
         if (!p) return;
-        setProject(p); $('#dlgProjects').close(); toast('Projeto aberto'); location.hash = '#interview'; route();
+        setProject(p); $('#dlgProjects').close(); toast('Projeto aberto'); go('#interview');
       });
     } else if (b.dataset.remove) {
       if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = 'Confirmar exclusão'; return; }
@@ -2704,7 +2935,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   $('#btnNewProject').addEventListener('click', function () {
     doSave().then(function () {
       setProject(newProject(false)); persist(true);
-      $('#dlgProjects').close(); location.hash = '#interview'; route(); toast('Novo projeto');
+      $('#dlgProjects').close(); go('#interview'); toast('Novo projeto');
     });
   });
   function setProject(p) {
