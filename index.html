@@ -84,13 +84,14 @@
       <div>
         <p class="eyebrow">Etapa 3 · Visualizador</p>
         <h1>Pintar a foto do cliente</h1>
-        <p class="lede">1) Escolha a superfície. 2) Toque na parede com a <b>Seleção inteligente</b>. 3) Ajuste com o pincel. Só o que você marcar muda de cor, o resto da foto fica igual.</p>
+        <p class="lede">Jogue a foto: a IA acha paredes, trim, teto, portas e armários e o app pinta as 3 opções com a cor exata. Se quiser ajustar, use a Seleção inteligente, o Pincel ou a Borracha.</p>
       </div>
       <div class="row-gap">
         <label class="button primary file-btn">Adicionar fotos<input id="photoInput" type="file" accept="image/*" multiple></label>
         <button class="ghost" id="btnSamplePhoto" type="button">Foto de exemplo</button>
       </div>
     </div>
+    <div class="notice" id="aiNotice" hidden></div>
     <div class="photo-layout">
       <aside class="photo-list" id="photoList" aria-label="Fotos do projeto"></aside>
       <div class="stage-wrap">
@@ -142,12 +143,13 @@
           <div class="canvas-box" id="canvasBox" hidden>
             <canvas id="cv"></canvas>
             <canvas id="cvCursor" aria-hidden="true"></canvas>
+            <div class="stage-busy" id="stageBusy" hidden><span class="spinner"></span><span id="stageBusyText">A IA está analisando a foto…</span></div>
           </div>
         </div>
         <div class="stage-foot">
           <div id="coverage" class="coverage"></div>
           <div class="row-gap">
-            <button type="button" class="ghost" id="btnAi" title="Usa a IA do Google (Gemini). Precisa de chave nas Configurações.">Gerar com IA (opcional)</button>
+            <button type="button" class="ghost" id="btnAi" title="A IA do Google acha as paredes, o trim e o teto nesta foto">Detectar áreas com IA</button>
             <button type="button" class="primary" id="btnRenderAll">Gerar fotos das 3 opções</button>
           </div>
         </div>
@@ -216,8 +218,8 @@
         <button type="button" class="ghost sm" id="s_logoReset">Usar logo padrão</button>
       </div>
     </div>
-    <h3 class="sec">IA para gerar fotos (opcional)</h3>
-    <p class="muted small">O visualizador já funciona sem IA. Se quiser que a IA do Google (Gemini) gere a foto, crie uma chave grátis em aistudio.google.com → “Get API key” e cole aqui. A chave fica salva só neste aparelho.</p>
+    <h3 class="sec">IA que acha as paredes sozinha</h3>
+    <p class="muted small">Com a chave, você só joga a foto e as 3 opções saem prontas. Como pegar a chave (1 minuto): entre em <b>aistudio.google.com</b> com uma conta Google → <b>Get API key</b> → <b>Create API key</b> → copie e cole aqui. Gerar imagens pode exigir faturamento ativo na conta Google (custa centavos por foto). A chave fica salva só neste aparelho.</p>
     <div class="grid-form">
       <label>Chave da API Gemini<input id="s_geminiKey" type="password" autocomplete="off"></label>
       <label>Modelo<input id="s_geminiModel"></label>

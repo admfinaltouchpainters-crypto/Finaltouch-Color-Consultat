@@ -11,6 +11,8 @@
   function $$(s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); }
 
   var settings = S.getSettings();
+  var embedded = false;
+  try { embedded = window.self !== window.top; } catch (e) { embedded = true; }
   var state = null;            // current project
   var works = {};              // photoId -> Work (pixel data, masks)
   var ui = { view: 'interview', surface: 'walls', tool: 'fill', show: 'paint', opt: 'A', photo: null, zoom: 1, undo: [] };
@@ -408,6 +410,7 @@
     return s;
   }
   function renderPhotos() {
+    renderAiNotice();
     var surfs = surfacesForProject();
     if (surfs.indexOf(ui.surface) < 0) ui.surface = surfs[0];
     $('#surfaceChips').innerHTML = surfs.map(function (s) {
@@ -594,7 +597,8 @@
       photos.forEach(function (p) { state.photos.push(p); });
       ui.photo = photos[0].id; ui.undo = [];
       persist(); renderPhotos();
-      toast('Agora toque na parede com a Seleção inteligente');
+      if (aiReady()) autoDetectAll(photos);
+      else toast('Foto adicionada. Toque na parede com a Seleção inteligente, ou ative a IA para marcar sozinho.');
     }).catch(function (err) { toast(err.message, true); });
   });
 
@@ -657,18 +661,69 @@
     $('#renders').innerHTML = html;
   }
 
+  /* ---------- automatic detection with AI ---------- */
+  function aiReady() { return !!(settings.geminiKey || '').trim() && !embedded; }
+  function renderAiNotice() {
+    var el = $('#aiNotice');
+    if (aiReady()) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = embedded
+      ? '<p><b>Dentro do Claude a IA não roda.</b> Para jogar a foto e as 3 opções saírem prontas, abra o app pelo site (GitHub Pages) ou pelo arquivo index.html. Aqui você pode marcar as paredes com a Seleção inteligente.</p>'
+      : '<p><b>Quer que as fotos saiam sozinhas?</b> Ative a IA uma vez (1 minuto, chave grátis do Google) e é só jogar a foto. Sem a IA, marque as paredes com a Seleção inteligente.</p><button type="button" class="primary" id="btnEnableAi">Ativar IA</button>';
+  }
+  $('#aiNotice').addEventListener('click', function (e) { if (e.target.id === 'btnEnableAi') { openSettings(); setTimeout(function () { $('#s_geminiKey').focus(); }, 50); } });
+  function setBusy(on, text) {
+    $('#stageBusy').hidden = !on;
+    if (text) $('#stageBusyText').textContent = text;
+    $('#btnAi').disabled = on; $('#btnRenderAll').disabled = on;
+  }
+  function detectSurfacesFor(s) {
+    // an interior accent wall is a choice, not something the AI can see: it stays manual
+    var list = surfacesForProject().filter(function (x) { return state.answers.project === 'exterior' || x !== 'accent'; });
+    return list.length ? list : ['walls'];
+  }
+  function autoDetect(ph, label) {
+    setBusy(true, (label || 'A IA está analisando a foto') + '… (uns 10 a 20 segundos)');
+    var surfs = detectSurfacesFor();
+    return AI.detectSurfaces(ph.src, surfs, state.answers.project, settings).then(function (res) {
+      return Promise.all([V.loadImage(res.marker), ensureWork(ph.id)]).then(function (r) {
+        var w = r[1];
+        if (ui.photo === ph.id) pushUndo(w);
+        var cover = w.applyMarker(r[0], res.surfaces, AI.MARKERS);
+        ph.renders = {}; ph.ai = {}; ph.useAi = {};
+        state.options.forEach(function (o) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); });
+        persist();
+        return cover;
+      });
+    });
+  }
+  function autoDetectAll(photos) {
+    var i = 0, problems = [];
+    function next() {
+      if (i >= photos.length) {
+        setBusy(false); renderPhotos();
+        if (problems.length) toast(problems.join(' '), true);
+        else toast(photos.length > 1 ? photos.length + ' fotos prontas nas 3 opções. Confira e ajuste se precisar.' : 'Pronto: 3 opções geradas. Confira e ajuste se precisar.');
+        return;
+      }
+      var ph = photos[i++];
+      ui.photo = ph.id; renderPhotos();
+      autoDetect(ph, photos.length > 1 ? 'A IA está analisando a foto ' + i + ' de ' + photos.length : null).then(function (cover) {
+        if (!cover.walls || cover.walls < 0.01) problems.push('Na foto "' + ph.name + '" a IA não achou parede: marque com a Seleção inteligente.');
+        else if (works[ph.id] && works[ph.id].markerAspectOff) problems.push('Na foto "' + ph.name + '" a IA devolveu a imagem em outro formato: confira se as áreas batem com a foto.');
+      }, function (err) {
+        problems.push(err.message);
+        i = photos.length; // same error would repeat for the rest
+      }).then(next);
+    }
+    next();
+  }
   $('#btnAi').addEventListener('click', function () {
     var ph = ui.photo && photoById(ui.photo);
     if (!ph) { toast('Adicione uma foto primeiro', true); return; }
-    if (!settings.geminiKey) { toast('Coloque a chave do Gemini em Configurações (é opcional).', true); openSettings(); return; }
-    var so = currentOption(), o = hydrate(so), btn = $('#btnAi');
-    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Gerando opção ' + so.id + '…';
-    AI.repaint(ph.src, o, state.answers.project, settings).then(function (url) {
-      ph.ai[so.id] = url; ph.useAi = ph.useAi || {}; ph.useAi[so.id] = true;
-      if (!ph.renders[so.id] && works[ph.id]) ph.renders[so.id] = works[ph.id].toDataURL(optColors(so), 0.88);
-      persist(); renderRenders(); toast('Versão IA da opção ' + so.id + ' pronta');
-    }).catch(function (err) { toast(err.message, true); })
-      .then(function () { btn.disabled = false; btn.textContent = 'Gerar com IA (opcional)'; });
+    if (embedded) { toast('Dentro do Claude a IA não roda. Abra o app pelo site (GitHub Pages).', true); return; }
+    if (!aiReady()) { toast('Coloque a chave do Gemini em Configurações.', true); openSettings(); return; }
+    autoDetectAll([ph]);
   });
 
   /* synthetic room so the tool can be tried without a client photo */
@@ -709,8 +764,6 @@
   }
   $('#optCompare').addEventListener('change', renderReport);
   $('#optShopping').addEventListener('change', renderReport);
-  var embedded = false;
-  try { embedded = window.self !== window.top; } catch (e) { embedded = true; }
   $('#btnPrint').addEventListener('click', function () {
     if (embedded) {
       toast('Aqui dentro do Claude o PDF não abre. Use o site (index.html) para salvar o PDF.', true);
@@ -748,6 +801,7 @@
     else toast('Configurações salvas');
     applyLogo();
     if (ui.view === 'presentation') renderReport();
+    if (ui.view === 'photos') renderPhotos();
   });
   function applyLogo() { $('#brandLogo').src = logoSrc(); }
 

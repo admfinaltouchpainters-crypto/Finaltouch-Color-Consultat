@@ -202,6 +202,9 @@ textarea { min-height: 90px; resize: vertical; }
 .proj { display: flex; justify-content: space-between; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; flex-wrap: wrap; }
 .proj.on { border-color: var(--accent); }
 
+.notice { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: var(--r); padding: 12px 14px; }
+.notice p { max-width: 75ch; }
+.stage-busy { position: absolute; inset: 0; display: flex; gap: 10px; align-items: center; justify-content: center; background: rgba(18, 36, 54, .55); color: #fff; font-weight: 600; font-size: 16px; line-height: 1.3; padding: 20px; text-align: center; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); background: var(--navy); color: #fff; padding: 10px 16px; border-radius: 10px; font-weight: 600; z-index: 50; max-width: calc(100vw - 32px); box-shadow: var(--shadow); }
 .toast.err { background: #8E1D18; }
 .spinner { width: 16px; height: 16px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: spin .8s linear infinite; }
@@ -414,13 +417,14 @@ figcaption { font-size: 8.5pt; color: var(--p-soft); margin-top: 4px; }
       <div>
         <p class="eyebrow">Etapa 3 · Visualizador</p>
         <h1>Pintar a foto do cliente</h1>
-        <p class="lede">1) Escolha a superfície. 2) Toque na parede com a <b>Seleção inteligente</b>. 3) Ajuste com o pincel. Só o que você marcar muda de cor, o resto da foto fica igual.</p>
+        <p class="lede">Jogue a foto: a IA acha paredes, trim, teto, portas e armários e o app pinta as 3 opções com a cor exata. Se quiser ajustar, use a Seleção inteligente, o Pincel ou a Borracha.</p>
       </div>
       <div class="row-gap">
         <label class="button primary file-btn">Adicionar fotos<input id="photoInput" type="file" accept="image/*" multiple></label>
         <button class="ghost" id="btnSamplePhoto" type="button">Foto de exemplo</button>
       </div>
     </div>
+    <div class="notice" id="aiNotice" hidden></div>
     <div class="photo-layout">
       <aside class="photo-list" id="photoList" aria-label="Fotos do projeto"></aside>
       <div class="stage-wrap">
@@ -472,12 +476,13 @@ figcaption { font-size: 8.5pt; color: var(--p-soft); margin-top: 4px; }
           <div class="canvas-box" id="canvasBox" hidden>
             <canvas id="cv"></canvas>
             <canvas id="cvCursor" aria-hidden="true"></canvas>
+            <div class="stage-busy" id="stageBusy" hidden><span class="spinner"></span><span id="stageBusyText">A IA está analisando a foto…</span></div>
           </div>
         </div>
         <div class="stage-foot">
           <div id="coverage" class="coverage"></div>
           <div class="row-gap">
-            <button type="button" class="ghost" id="btnAi" title="Usa a IA do Google (Gemini). Precisa de chave nas Configurações.">Gerar com IA (opcional)</button>
+            <button type="button" class="ghost" id="btnAi" title="A IA do Google acha as paredes, o trim e o teto nesta foto">Detectar áreas com IA</button>
             <button type="button" class="primary" id="btnRenderAll">Gerar fotos das 3 opções</button>
           </div>
         </div>
@@ -546,8 +551,8 @@ figcaption { font-size: 8.5pt; color: var(--p-soft); margin-top: 4px; }
         <button type="button" class="ghost sm" id="s_logoReset">Usar logo padrão</button>
       </div>
     </div>
-    <h3 class="sec">IA para gerar fotos (opcional)</h3>
-    <p class="muted small">O visualizador já funciona sem IA. Se quiser que a IA do Google (Gemini) gere a foto, crie uma chave grátis em aistudio.google.com → “Get API key” e cole aqui. A chave fica salva só neste aparelho.</p>
+    <h3 class="sec">IA que acha as paredes sozinha</h3>
+    <p class="muted small">Com a chave, você só joga a foto e as 3 opções saem prontas. Como pegar a chave (1 minuto): entre em <b>aistudio.google.com</b> com uma conta Google → <b>Get API key</b> → <b>Create API key</b> → copie e cole aqui. Gerar imagens pode exigir faturamento ativo na conta Google (custa centavos por foto). A chave fica salva só neste aparelho.</p>
     <div class="grid-form">
       <label>Chave da API Gemini<input id="s_geminiKey" type="password" autocomplete="off"></label>
       <label>Modelo<input id="s_geminiModel"></label>
@@ -1803,6 +1808,118 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     return cv.toDataURL('image/jpeg', quality || 0.9);
   };
 
+  /* Turn an AI "marker" image (each surface painted a flat pure color) into masks.
+     1) classify every pixel by the nearest marker color (must be vivid and differ
+        from the original photo), 2) smooth with a 5x5 majority vote, 3) snap the
+        edges to the real photo: near the boundary a pixel is kept only if its color
+        matches that surface. Pixels the user already marked as "accent" stay accent. */
+  Work.prototype.applyMarker = function (markerImg, surfaces, markers) {
+    var w = this.w, h = this.h, n = this.n, src = this.orig.data, lab = this.lab;
+    var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    var ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(markerImg, 0, 0, w, h);
+    this.markerAspectOff = Math.abs((markerImg.naturalWidth / markerImg.naturalHeight) / (w / h) - 1) > 0.04;
+    var md = ctx.getImageData(0, 0, w, h).data;
+    var K = surfaces.length, lbl = new Uint8Array(n);
+    function hueOf(r, g, b) {
+      var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      if (!d) return -1;
+      var h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (h * 60 + 360) % 360;
+    }
+    // classify by hue (the model may shade or darken the flat colors a little)
+    var hues = surfaces.map(function (sname) { var c = markers[sname].rgb; return hueOf(c[0], c[1], c[2]); });
+    for (var p = 0; p < n; p++) {
+      var i4 = p * 4, r = md[i4], g = md[i4 + 1], b = md[i4 + 2];
+      var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (mx < 70 || (mx - mn) / mx < 0.62) continue;          // markers are vivid
+      var hp = hueOf(r, g, b), best = 0, bd = 1e9;
+      for (var k = 0; k < K; k++) {
+        var dh = Math.abs(hp - hues[k]); if (dh > 180) dh = 360 - dh;
+        if (dh < bd) { bd = dh; best = k + 1; }
+      }
+      if (bd > 26) continue;
+      var orr = r - src[i4], og = g - src[i4 + 1], ob = b - src[i4 + 2];
+      if (orr * orr + og * og + ob * ob < 70 * 70) continue;    // a red object that was already red
+      lbl[p] = best;
+    }
+    // 5x5 majority vote per label (integral images)
+    var W1 = w + 1, out = new Uint8Array(n), bestCnt = new Uint8Array(n);
+    for (var k2 = 1; k2 <= K; k2++) {
+      var I = new Int32Array(W1 * (h + 1));
+      for (var y = 0; y < h; y++) {
+        var acc = 0;
+        for (var x = 0; x < w; x++) { acc += lbl[y * w + x] === k2 ? 1 : 0; I[(y + 1) * W1 + x + 1] = I[y * W1 + x + 1] + acc; }
+      }
+      for (var y2 = 0; y2 < h; y2++) {
+        var ya = Math.max(0, y2 - 2), yb = Math.min(h, y2 + 3);
+        for (var x2 = 0; x2 < w; x2++) {
+          var xa = Math.max(0, x2 - 2), xb = Math.min(w, x2 + 3);
+          var cnt = I[yb * W1 + xb] - I[ya * W1 + xb] - I[yb * W1 + xa] + I[ya * W1 + xa];
+          var area = (yb - ya) * (xb - xa);
+          var q = y2 * w + x2;
+          if (cnt * 2 > area && cnt > bestCnt[q]) { bestCnt[q] = cnt; out[q] = k2; }
+        }
+      }
+    }
+    // edge snapping: core = label with all 4-neighbors at distance 3 also labeled
+    var R = 3, wl = 0.3, wc = 4;
+    var stats = [];
+    for (var k3 = 1; k3 <= K; k3++) stats[k3] = { L: 0, a: 0, b: 0, n: 0 };
+    function isCore(q, k) {
+      var x = q % w, y = (q / w) | 0;
+      if (x < R || y < R || x >= w - R || y >= h - R) return false;
+      return out[q - R] === k && out[q + R] === k && out[q - R * w] === k && out[q + R * w] === k;
+    }
+    var core = new Uint8Array(n);
+    for (var q2 = 0; q2 < n; q2++) {
+      var kk = out[q2]; if (!kk) continue;
+      if (isCore(q2, kk)) { core[q2] = 1; var st = stats[kk]; st.L += lab[q2 * 3]; st.a += lab[q2 * 3 + 1]; st.b += lab[q2 * 3 + 2]; st.n++; }
+    }
+    for (var k4 = 1; k4 <= K; k4++) { var s4 = stats[k4]; if (s4.n) { s4.L /= s4.n; s4.a /= s4.n; s4.b /= s4.n; } }
+    // spread of each surface's color, so textured/shaded surfaces get a wider band tolerance
+    var spread = [];
+    for (var k5 = 1; k5 <= K; k5++) spread[k5] = { sum: 0, n: 0 };
+    for (var q3 = 0; q3 < n; q3 += 7) {
+      if (!core[q3]) continue;
+      var k6 = out[q3], s6 = stats[k6];
+      var dl = (lab[q3 * 3] - s6.L) * wl, da = lab[q3 * 3 + 1] - s6.a, db2 = lab[q3 * 3 + 2] - s6.b;
+      spread[k6].sum += dl * dl + wc * (da * da + db2 * db2); spread[k6].n++;
+    }
+    var final = new Uint8Array(n);
+    for (var q4 = 0; q4 < n; q4++) {
+      var k7 = out[q4];
+      if (core[q4]) { final[q4] = k7; continue; }
+      // boundary band: which labels are near (within R px)?
+      var x4 = q4 % w, y4 = (q4 / w) | 0, cand = 0;
+      for (var dy = -R; dy <= R && !cand; dy += R) for (var dx = -R; dx <= R; dx += R) {
+        var xx = x4 + dx, yy = y4 + dy;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        var o = out[yy * w + xx];
+        if (o && core[yy * w + xx]) { cand = o; break; }
+      }
+      if (!cand) cand = k7;
+      if (!cand) continue;
+      var s7 = stats[cand]; if (!s7.n) { if (k7) final[q4] = k7; continue; }
+      var sp = spread[cand].n ? spread[cand].sum / spread[cand].n : 0.002;
+      var lim = Math.max(0.0025, sp * 4);
+      var dl2 = (lab[q4 * 3] - s7.L) * wl, da2 = lab[q4 * 3 + 1] - s7.a, db3 = lab[q4 * 3 + 2] - s7.b;
+      if (dl2 * dl2 + wc * (da2 * da2 + db3 * db3) <= lim) final[q4] = cand;
+    }
+    // write masks
+    var keep = this.masks.accent && surfaces.indexOf('accent') < 0 ? this.masks.accent : null;
+    var self = this, cover = {};
+    surfaces.forEach(function (sname, idx) {
+      var m = self.mask(sname); m.fill(0);
+      var c = 0;
+      for (var q5 = 0; q5 < n; q5++) if (final[q5] === idx + 1 && !(keep && keep[q5])) { m[q5] = 255; c++; }
+      self.touch(sname);
+      cover[sname] = c / n;
+    });
+    return cover;
+  };
+
   Work.prototype.coverage = function (s) {
     var m = this.masks[s]; if (!m) return 0;
     var c = 0; for (var i = 0; i < m.length; i++) if (m[i]) c++;
@@ -1840,74 +1957,150 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
 
 </script>
 <script>
-/* Optional AI repaint using Google's Gemini image editing model.
+/* AI helpers using Google's Gemini image model.
    The key is stored only in this browser (localStorage) and is sent only to
-   generativelanguage.googleapis.com. The local recolor needs no key. */
+   generativelanguage.googleapis.com.
+
+   detectSurfaces(): the main flow. Gemini returns the photo with each surface
+   painted a flat "marker" color (walls red, trim blue...). The app turns those
+   markers into masks and paints the real paint colors itself, so the colors are
+   exact and everything else in the photo stays untouched. One call per photo
+   covers all three options. */
 (function (root) {
   'use strict';
   var R = root.FTRecommend;
+  var ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
+  var DEFAULT_MODEL = 'gemini-2.5-flash-image';
 
-  function buildPrompt(option, project) {
-    var lines = [];
-    Object.keys(option.slots).forEach(function (s) {
-      var c = option.slots[s].c;
-      if (!c) return;
-      lines.push('- ' + R.surfaceLabel(s, project, 'en') + ': ' + root.FTColor.brandName(c.brand) + ' "' + c.name + '" ' + c.code +
-        ' (hex ' + c.hex + ')');
-    });
-    return [
-      'Edit this photo of a ' + (project === 'exterior' ? 'house exterior' : 'room') + ' as a realistic paint color visualization.',
-      'Repaint ONLY these surfaces with flat, realistic paint in the exact colors listed:',
-      lines.join('\n'),
-      'Keep the original lighting, shadows, reflections and surface texture on the repainted surfaces.',
-      'Do not change anything else: keep furniture, floors, decor, windows, fixtures, people, plants, the view outside, the camera angle, framing and image size exactly as they are.',
-      'Do not add, remove or move any object. Do not restyle the room. Return only the edited photo.'
-    ].join('\n');
-  }
+  // marker colors the model paints each surface with
+  var MARKERS = {
+    walls: { rgb: [255, 0, 0], name: 'pure red (#FF0000)' },
+    trim: { rgb: [0, 0, 255], name: 'pure blue (#0000FF)' },
+    ceiling: { rgb: [0, 255, 0], name: 'pure green (#00FF00)' },
+    doors: { rgb: [255, 255, 0], name: 'pure yellow (#FFFF00)' },
+    cabinets: { rgb: [255, 0, 255], name: 'pure magenta (#FF00FF)' },
+    accent: { rgb: [0, 255, 255], name: 'pure cyan (#00FFFF)' }
+  };
+  var DESCRIBE = {
+    interior: {
+      walls: 'every painted WALL surface (all walls, including walls seen through doorways)',
+      trim: 'all TRIM: baseboards, crown molding, door casings and window casings',
+      ceiling: 'the CEILING',
+      doors: 'interior DOOR slabs (the doors themselves, not the casings)',
+      cabinets: 'CABINETS and built-in cabinetry (doors, drawer fronts and boxes)'
+    },
+    exterior: {
+      walls: 'the house BODY: siding, clapboard, shingles, stucco or painted brick',
+      trim: 'all exterior TRIM: fascia, soffits, corner boards and window/door casings',
+      accent: 'the FRONT DOOR and SHUTTERS',
+      doors: 'garage and other exterior DOORS'
+    }
+  };
 
   function dataUrlParts(dataUrl) {
     var m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl);
     return m ? { mime: m[1], data: m[2] } : null;
   }
 
-  function repaint(photoSrc, option, project, settings) {
+  // smaller upload = faster and cheaper; masks are scaled back to the full photo
+  function downscale(src, maxSide) {
+    return root.FTVisualizer.loadImage(src).then(function (img) {
+      var k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      var cv = document.createElement('canvas');
+      cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      return cv.toDataURL('image/jpeg', 0.9);
+    });
+  }
+
+  function friendlyError(err, status, msg) {
+    msg = msg || (err && err.message) || '';
+    if (err && err.name === 'TypeError') {
+      return 'Não consegui falar com a IA do Google. Confira a internet. Dentro do Claude a IA não funciona: abra o app pelo site (GitHub Pages) ou pelo arquivo index.html.';
+    }
+    if (/API key not valid|API_KEY_INVALID/i.test(msg)) return 'A chave do Gemini não é válida. Copie de novo em aistudio.google.com e cole em Configurações.';
+    if (status === 429 || /quota|RESOURCE_EXHAUSTED/i.test(msg)) return 'A cota da IA acabou por agora. Espere um minuto ou confira o plano/faturamento da chave no Google AI Studio.';
+    if (status === 404 || /not found|is not supported/i.test(msg)) return 'O modelo de IA configurado não existe mais. Em Configurações, use: ' + DEFAULT_MODEL + '.';
+    if (/billing|FAILED_PRECONDITION/i.test(msg)) return 'A chave precisa de faturamento ativo no Google AI Studio para gerar imagens.';
+    if (/SAFETY|blocked/i.test(msg)) return 'A IA recusou esta foto. Tente outra foto do ambiente.';
+    return 'A IA não conseguiu processar a foto (' + (msg || 'erro desconhecido').slice(0, 160) + ').';
+  }
+
+  function callImageModel(prompt, imageDataUrl, settings) {
     var key = (settings.geminiKey || '').trim();
-    if (!key) return Promise.reject(new Error('Add your Gemini API key in Settings first.'));
-    var model = (settings.geminiModel || 'gemini-2.5-flash-image').trim();
-    var img = dataUrlParts(photoSrc);
+    if (!key) return Promise.reject(new Error('Coloque a chave do Gemini em Configurações.'));
+    var model = (settings.geminiModel || DEFAULT_MODEL).trim();
+    var img = dataUrlParts(imageDataUrl);
     var body = {
-      contents: [{
-        role: 'user',
-        parts: [
-          { text: buildPrompt(option, project) },
-          { inline_data: { mime_type: img.mime, data: img.data } }
-        ]
-      }],
+      contents: [{ role: 'user', parts: [{ text: prompt }, { inline_data: { mime_type: img.mime, data: img.data } }] }],
       generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
     };
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
-    return fetch(url, {
+    var status = 0;
+    return fetch(ENDPOINT + encodeURIComponent(model) + ':generateContent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify(body)
     }).then(function (res) {
+      status = res.status;
       return res.json().catch(function () { return {}; }).then(function (j) {
-        if (!res.ok) {
-          var msg = (j.error && j.error.message) || ('HTTP ' + res.status);
-          throw new Error('Gemini: ' + msg);
-        }
-        var parts = (((j.candidates || [])[0] || {}).content || {}).parts || [];
+        if (!res.ok) throw new Error(friendlyError(null, status, (j.error && (j.error.message + ' ' + (j.error.status || ''))) || ('HTTP ' + status)));
+        var cand = (j.candidates || [])[0] || {};
+        var parts = (cand.content || {}).parts || [];
         for (var i = 0; i < parts.length; i++) {
           var d = parts[i].inlineData || parts[i].inline_data;
           if (d && d.data) return 'data:' + (d.mimeType || d.mime_type || 'image/png') + ';base64,' + d.data;
         }
-        var txt = parts.map(function (p) { return p.text || ''; }).join(' ').trim();
-        throw new Error('Gemini did not return an image.' + (txt ? ' It said: ' + txt.slice(0, 200) : ''));
+        var why = cand.finishReason || (j.promptFeedback && j.promptFeedback.blockReason) || '';
+        throw new Error(friendlyError(null, status, 'no image ' + why + ' ' + parts.map(function (p) { return p.text || ''; }).join(' ')));
       });
-    });
+    }, function (err) { throw new Error(friendlyError(err, 0)); });
   }
 
-  root.FTAI = { repaint: repaint, buildPrompt: buildPrompt };
+  function markerPrompt(surfaces, project) {
+    var kind = project === 'exterior' ? 'exterior' : 'interior';
+    var lines = surfaces.filter(function (s) { return DESCRIBE[kind][s] && MARKERS[s]; }).map(function (s) {
+      return '- Paint ' + DESCRIBE[kind][s] + ' solid ' + MARKERS[s].name + '.';
+    });
+    return [
+      'You are making a paint-area map of this ' + (kind === 'exterior' ? 'house exterior' : 'room') + ' photo for a painting contractor.',
+      'Edit the photo like this:',
+      lines.join('\n'),
+      'Use completely flat, solid colors with no shading, texture, gradients or highlights on those areas.',
+      'Fill each area right up to its real edges. Do not paint anything in front of those surfaces: furniture, art, lamps, plants, curtains, windows, glass, outlets and switches keep their original look.',
+      'Keep everything else exactly as in the original photo: same framing, same camera angle, same size. Do not add, remove or move anything.',
+      'Return only the edited image.'
+    ].join('\n');
+  }
+
+  function detectSurfaces(photoSrc, surfaces, project, settings) {
+    var surf = surfaces.filter(function (s) { return MARKERS[s] && DESCRIBE[project === 'exterior' ? 'exterior' : 'interior'][s]; });
+    if (!surf.length) surf = ['walls'];
+    return downscale(photoSrc, 1280).then(function (small) {
+      return callImageModel(markerPrompt(surf, project), small, settings);
+    }).then(function (url) { return { marker: url, surfaces: surf }; });
+  }
+
+  /* Free-form AI repaint (kept as an extra: the model paints the colors itself). */
+  function buildPrompt(option, project) {
+    var lines = [];
+    Object.keys(option.slots).forEach(function (s) {
+      var c = option.slots[s].c;
+      if (!c) return;
+      lines.push('- ' + R.surfaceLabel(s, project, 'en') + ': ' + root.FTColor.brandName(c.brand) + ' "' + c.name + '" ' + c.code + ' (hex ' + c.hex + ')');
+    });
+    return [
+      'Edit this photo of a ' + (project === 'exterior' ? 'house exterior' : 'room') + ' as a realistic paint color visualization.',
+      'Repaint ONLY these surfaces with flat, realistic paint in the exact colors listed:',
+      lines.join('\n'),
+      'Keep the original lighting, shadows, reflections and surface texture on the repainted surfaces.',
+      'Do not change anything else. Do not add, remove or move any object. Return only the edited photo.'
+    ].join('\n');
+  }
+  function repaint(photoSrc, option, project, settings) {
+    return downscale(photoSrc, 1536).then(function (small) { return callImageModel(buildPrompt(option, project), small, settings); });
+  }
+
+  root.FTAI = { detectSurfaces: detectSurfaces, repaint: repaint, MARKERS: MARKERS, markerPrompt: markerPrompt, DEFAULT_MODEL: DEFAULT_MODEL };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -2165,6 +2358,8 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   function $$(s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); }
 
   var settings = S.getSettings();
+  var embedded = false;
+  try { embedded = window.self !== window.top; } catch (e) { embedded = true; }
   var state = null;            // current project
   var works = {};              // photoId -> Work (pixel data, masks)
   var ui = { view: 'interview', surface: 'walls', tool: 'fill', show: 'paint', opt: 'A', photo: null, zoom: 1, undo: [] };
@@ -2562,6 +2757,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     return s;
   }
   function renderPhotos() {
+    renderAiNotice();
     var surfs = surfacesForProject();
     if (surfs.indexOf(ui.surface) < 0) ui.surface = surfs[0];
     $('#surfaceChips').innerHTML = surfs.map(function (s) {
@@ -2748,7 +2944,8 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       photos.forEach(function (p) { state.photos.push(p); });
       ui.photo = photos[0].id; ui.undo = [];
       persist(); renderPhotos();
-      toast('Agora toque na parede com a Seleção inteligente');
+      if (aiReady()) autoDetectAll(photos);
+      else toast('Foto adicionada. Toque na parede com a Seleção inteligente, ou ative a IA para marcar sozinho.');
     }).catch(function (err) { toast(err.message, true); });
   });
 
@@ -2811,18 +3008,69 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     $('#renders').innerHTML = html;
   }
 
+  /* ---------- automatic detection with AI ---------- */
+  function aiReady() { return !!(settings.geminiKey || '').trim() && !embedded; }
+  function renderAiNotice() {
+    var el = $('#aiNotice');
+    if (aiReady()) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = embedded
+      ? '<p><b>Dentro do Claude a IA não roda.</b> Para jogar a foto e as 3 opções saírem prontas, abra o app pelo site (GitHub Pages) ou pelo arquivo index.html. Aqui você pode marcar as paredes com a Seleção inteligente.</p>'
+      : '<p><b>Quer que as fotos saiam sozinhas?</b> Ative a IA uma vez (1 minuto, chave grátis do Google) e é só jogar a foto. Sem a IA, marque as paredes com a Seleção inteligente.</p><button type="button" class="primary" id="btnEnableAi">Ativar IA</button>';
+  }
+  $('#aiNotice').addEventListener('click', function (e) { if (e.target.id === 'btnEnableAi') { openSettings(); setTimeout(function () { $('#s_geminiKey').focus(); }, 50); } });
+  function setBusy(on, text) {
+    $('#stageBusy').hidden = !on;
+    if (text) $('#stageBusyText').textContent = text;
+    $('#btnAi').disabled = on; $('#btnRenderAll').disabled = on;
+  }
+  function detectSurfacesFor(s) {
+    // an interior accent wall is a choice, not something the AI can see: it stays manual
+    var list = surfacesForProject().filter(function (x) { return state.answers.project === 'exterior' || x !== 'accent'; });
+    return list.length ? list : ['walls'];
+  }
+  function autoDetect(ph, label) {
+    setBusy(true, (label || 'A IA está analisando a foto') + '… (uns 10 a 20 segundos)');
+    var surfs = detectSurfacesFor();
+    return AI.detectSurfaces(ph.src, surfs, state.answers.project, settings).then(function (res) {
+      return Promise.all([V.loadImage(res.marker), ensureWork(ph.id)]).then(function (r) {
+        var w = r[1];
+        if (ui.photo === ph.id) pushUndo(w);
+        var cover = w.applyMarker(r[0], res.surfaces, AI.MARKERS);
+        ph.renders = {}; ph.ai = {}; ph.useAi = {};
+        state.options.forEach(function (o) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); });
+        persist();
+        return cover;
+      });
+    });
+  }
+  function autoDetectAll(photos) {
+    var i = 0, problems = [];
+    function next() {
+      if (i >= photos.length) {
+        setBusy(false); renderPhotos();
+        if (problems.length) toast(problems.join(' '), true);
+        else toast(photos.length > 1 ? photos.length + ' fotos prontas nas 3 opções. Confira e ajuste se precisar.' : 'Pronto: 3 opções geradas. Confira e ajuste se precisar.');
+        return;
+      }
+      var ph = photos[i++];
+      ui.photo = ph.id; renderPhotos();
+      autoDetect(ph, photos.length > 1 ? 'A IA está analisando a foto ' + i + ' de ' + photos.length : null).then(function (cover) {
+        if (!cover.walls || cover.walls < 0.01) problems.push('Na foto "' + ph.name + '" a IA não achou parede: marque com a Seleção inteligente.');
+        else if (works[ph.id] && works[ph.id].markerAspectOff) problems.push('Na foto "' + ph.name + '" a IA devolveu a imagem em outro formato: confira se as áreas batem com a foto.');
+      }, function (err) {
+        problems.push(err.message);
+        i = photos.length; // same error would repeat for the rest
+      }).then(next);
+    }
+    next();
+  }
   $('#btnAi').addEventListener('click', function () {
     var ph = ui.photo && photoById(ui.photo);
     if (!ph) { toast('Adicione uma foto primeiro', true); return; }
-    if (!settings.geminiKey) { toast('Coloque a chave do Gemini em Configurações (é opcional).', true); openSettings(); return; }
-    var so = currentOption(), o = hydrate(so), btn = $('#btnAi');
-    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Gerando opção ' + so.id + '…';
-    AI.repaint(ph.src, o, state.answers.project, settings).then(function (url) {
-      ph.ai[so.id] = url; ph.useAi = ph.useAi || {}; ph.useAi[so.id] = true;
-      if (!ph.renders[so.id] && works[ph.id]) ph.renders[so.id] = works[ph.id].toDataURL(optColors(so), 0.88);
-      persist(); renderRenders(); toast('Versão IA da opção ' + so.id + ' pronta');
-    }).catch(function (err) { toast(err.message, true); })
-      .then(function () { btn.disabled = false; btn.textContent = 'Gerar com IA (opcional)'; });
+    if (embedded) { toast('Dentro do Claude a IA não roda. Abra o app pelo site (GitHub Pages).', true); return; }
+    if (!aiReady()) { toast('Coloque a chave do Gemini em Configurações.', true); openSettings(); return; }
+    autoDetectAll([ph]);
   });
 
   /* synthetic room so the tool can be tried without a client photo */
@@ -2863,8 +3111,6 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   }
   $('#optCompare').addEventListener('change', renderReport);
   $('#optShopping').addEventListener('change', renderReport);
-  var embedded = false;
-  try { embedded = window.self !== window.top; } catch (e) { embedded = true; }
   $('#btnPrint').addEventListener('click', function () {
     if (embedded) {
       toast('Aqui dentro do Claude o PDF não abre. Use o site (index.html) para salvar o PDF.', true);
@@ -2902,6 +3148,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     else toast('Configurações salvas');
     applyLogo();
     if (ui.view === 'presentation') renderReport();
+    if (ui.view === 'photos') renderPhotos();
   });
   function applyLogo() { $('#brandLogo').src = logoSrc(); }
 

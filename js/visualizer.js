@@ -380,6 +380,118 @@
     return cv.toDataURL('image/jpeg', quality || 0.9);
   };
 
+  /* Turn an AI "marker" image (each surface painted a flat pure color) into masks.
+     1) classify every pixel by the nearest marker color (must be vivid and differ
+        from the original photo), 2) smooth with a 5x5 majority vote, 3) snap the
+        edges to the real photo: near the boundary a pixel is kept only if its color
+        matches that surface. Pixels the user already marked as "accent" stay accent. */
+  Work.prototype.applyMarker = function (markerImg, surfaces, markers) {
+    var w = this.w, h = this.h, n = this.n, src = this.orig.data, lab = this.lab;
+    var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    var ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(markerImg, 0, 0, w, h);
+    this.markerAspectOff = Math.abs((markerImg.naturalWidth / markerImg.naturalHeight) / (w / h) - 1) > 0.04;
+    var md = ctx.getImageData(0, 0, w, h).data;
+    var K = surfaces.length, lbl = new Uint8Array(n);
+    function hueOf(r, g, b) {
+      var mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      if (!d) return -1;
+      var h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (h * 60 + 360) % 360;
+    }
+    // classify by hue (the model may shade or darken the flat colors a little)
+    var hues = surfaces.map(function (sname) { var c = markers[sname].rgb; return hueOf(c[0], c[1], c[2]); });
+    for (var p = 0; p < n; p++) {
+      var i4 = p * 4, r = md[i4], g = md[i4 + 1], b = md[i4 + 2];
+      var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (mx < 70 || (mx - mn) / mx < 0.62) continue;          // markers are vivid
+      var hp = hueOf(r, g, b), best = 0, bd = 1e9;
+      for (var k = 0; k < K; k++) {
+        var dh = Math.abs(hp - hues[k]); if (dh > 180) dh = 360 - dh;
+        if (dh < bd) { bd = dh; best = k + 1; }
+      }
+      if (bd > 26) continue;
+      var orr = r - src[i4], og = g - src[i4 + 1], ob = b - src[i4 + 2];
+      if (orr * orr + og * og + ob * ob < 70 * 70) continue;    // a red object that was already red
+      lbl[p] = best;
+    }
+    // 5x5 majority vote per label (integral images)
+    var W1 = w + 1, out = new Uint8Array(n), bestCnt = new Uint8Array(n);
+    for (var k2 = 1; k2 <= K; k2++) {
+      var I = new Int32Array(W1 * (h + 1));
+      for (var y = 0; y < h; y++) {
+        var acc = 0;
+        for (var x = 0; x < w; x++) { acc += lbl[y * w + x] === k2 ? 1 : 0; I[(y + 1) * W1 + x + 1] = I[y * W1 + x + 1] + acc; }
+      }
+      for (var y2 = 0; y2 < h; y2++) {
+        var ya = Math.max(0, y2 - 2), yb = Math.min(h, y2 + 3);
+        for (var x2 = 0; x2 < w; x2++) {
+          var xa = Math.max(0, x2 - 2), xb = Math.min(w, x2 + 3);
+          var cnt = I[yb * W1 + xb] - I[ya * W1 + xb] - I[yb * W1 + xa] + I[ya * W1 + xa];
+          var area = (yb - ya) * (xb - xa);
+          var q = y2 * w + x2;
+          if (cnt * 2 > area && cnt > bestCnt[q]) { bestCnt[q] = cnt; out[q] = k2; }
+        }
+      }
+    }
+    // edge snapping: core = label with all 4-neighbors at distance 3 also labeled
+    var R = 3, wl = 0.3, wc = 4;
+    var stats = [];
+    for (var k3 = 1; k3 <= K; k3++) stats[k3] = { L: 0, a: 0, b: 0, n: 0 };
+    function isCore(q, k) {
+      var x = q % w, y = (q / w) | 0;
+      if (x < R || y < R || x >= w - R || y >= h - R) return false;
+      return out[q - R] === k && out[q + R] === k && out[q - R * w] === k && out[q + R * w] === k;
+    }
+    var core = new Uint8Array(n);
+    for (var q2 = 0; q2 < n; q2++) {
+      var kk = out[q2]; if (!kk) continue;
+      if (isCore(q2, kk)) { core[q2] = 1; var st = stats[kk]; st.L += lab[q2 * 3]; st.a += lab[q2 * 3 + 1]; st.b += lab[q2 * 3 + 2]; st.n++; }
+    }
+    for (var k4 = 1; k4 <= K; k4++) { var s4 = stats[k4]; if (s4.n) { s4.L /= s4.n; s4.a /= s4.n; s4.b /= s4.n; } }
+    // spread of each surface's color, so textured/shaded surfaces get a wider band tolerance
+    var spread = [];
+    for (var k5 = 1; k5 <= K; k5++) spread[k5] = { sum: 0, n: 0 };
+    for (var q3 = 0; q3 < n; q3 += 7) {
+      if (!core[q3]) continue;
+      var k6 = out[q3], s6 = stats[k6];
+      var dl = (lab[q3 * 3] - s6.L) * wl, da = lab[q3 * 3 + 1] - s6.a, db2 = lab[q3 * 3 + 2] - s6.b;
+      spread[k6].sum += dl * dl + wc * (da * da + db2 * db2); spread[k6].n++;
+    }
+    var final = new Uint8Array(n);
+    for (var q4 = 0; q4 < n; q4++) {
+      var k7 = out[q4];
+      if (core[q4]) { final[q4] = k7; continue; }
+      // boundary band: which labels are near (within R px)?
+      var x4 = q4 % w, y4 = (q4 / w) | 0, cand = 0;
+      for (var dy = -R; dy <= R && !cand; dy += R) for (var dx = -R; dx <= R; dx += R) {
+        var xx = x4 + dx, yy = y4 + dy;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        var o = out[yy * w + xx];
+        if (o && core[yy * w + xx]) { cand = o; break; }
+      }
+      if (!cand) cand = k7;
+      if (!cand) continue;
+      var s7 = stats[cand]; if (!s7.n) { if (k7) final[q4] = k7; continue; }
+      var sp = spread[cand].n ? spread[cand].sum / spread[cand].n : 0.002;
+      var lim = Math.max(0.0025, sp * 4);
+      var dl2 = (lab[q4 * 3] - s7.L) * wl, da2 = lab[q4 * 3 + 1] - s7.a, db3 = lab[q4 * 3 + 2] - s7.b;
+      if (dl2 * dl2 + wc * (da2 * da2 + db3 * db3) <= lim) final[q4] = cand;
+    }
+    // write masks
+    var keep = this.masks.accent && surfaces.indexOf('accent') < 0 ? this.masks.accent : null;
+    var self = this, cover = {};
+    surfaces.forEach(function (sname, idx) {
+      var m = self.mask(sname); m.fill(0);
+      var c = 0;
+      for (var q5 = 0; q5 < n; q5++) if (final[q5] === idx + 1 && !(keep && keep[q5])) { m[q5] = 255; c++; }
+      self.touch(sname);
+      cover[sname] = c / n;
+    });
+    return cover;
+  };
+
   Work.prototype.coverage = function (s) {
     var m = this.masks[s]; if (!m) return 0;
     var c = 0; for (var i = 0; i < m.length; i++) if (m[i]) c++;
