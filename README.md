@@ -4,7 +4,7 @@ Ferramenta de consultoria de cores da **Final Touch Painters**. Funciona no nave
 
 1. **Entrevista**: perguntas de designer em inglês (para ler ao cliente), com a tradução em português.
 2. **Cores**: gera 3 opções completas (parede, trim, teto, parede destaque, portas, armários) com as cores reais da **Benjamin Moore** e da **Sherwin-Williams**, com código de loja, LRV, localização no leque da SW e a cor mais parecida da outra marca. Qualquer cor pode ser trocada pelo catálogo.
-3. **Fotos**: você só joga a foto. A IA do Google (Gemini) acha paredes, trim, teto, portas e armários (uma chamada por foto) e o app pinta as 3 opções com a **cor exata** do código da tinta, deixando todo o resto da foto igual. Para ajustar, use a Seleção inteligente, o Pincel e a Borracha. Sem a IA, as áreas são marcadas à mão com essas mesmas ferramentas.
+3. **Fotos**: você só joga a foto. A IA (o próprio Claude, quando aberto pelo link do Claude) acha paredes, trim, teto, portas e armários e o app pinta as 3 opções com a **cor exata** do código da tinta, deixando todo o resto da foto igual. Para ajustar, use a Seleção inteligente, o Pincel e a Borracha. Sem a IA, as áreas são marcadas à mão com essas mesmas ferramentas.
 4. **Apresentação**: documento em inglês com a marca Final Touch (capa, resumo, 3 opções com fotos, comparação lado a lado, lista de compras, próximos passos), pronto para salvar em PDF.
 
 ## Como usar
@@ -18,16 +18,10 @@ Ferramenta de consultoria de cores da **Final Touch Painters**. Funciona no nave
 ### Publicar como site (GitHub Pages)
 No GitHub: *Settings → Pages → Build and deployment → Deploy from a branch* → escolha a branch e a pasta `/ (root)`. O site fica em `https://<usuario>.github.io/<repositorio>/`.
 
-### Ativar a IA (para as fotos saírem sozinhas)
-1. Entre em **aistudio.google.com** com uma conta Google → **Get API key** → **Create API key**.
-2. No app: **Configurações** → cole em *Chave da API Gemini* → **Salvar**.
-3. Pronto: jogue a foto em *Fotos* e as 3 opções saem sozinhas (uns 10 a 20 segundos por foto).
-
-Observações:
-- Gerar imagens pode exigir faturamento ativo na conta Google (custa centavos por foto).
-- A chave fica salva só no navegador do aparelho e é enviada apenas para `generativelanguage.googleapis.com`.
-- **Dentro do Claude a IA não roda** (o Claude bloqueia conexões externas). Use o site (GitHub Pages) ou o `index.html`.
-- Se a IA errar uma área, corrija com o Pincel/Borracha. Parede de destaque interna é escolha do cliente, então é marcada à mão.
+### IA que acha as paredes
+- **Pelo link do Claude (recomendado):** não precisa configurar nada. Jogue a foto: o app manda a foto (com uma grade de coordenadas) para o Claude, que aponta onde estão parede, trim, teto, portas e armários; o app expande cada ponto até a borda real e pinta as 3 opções com a cor exata. Na primeira vez o Claude pede para você autorizar o app. Leva até 1 minuto por foto e usa o seu plano do Claude.
+- **Fora do Claude (site/GitHub Pages, opcional):** dá para usar a IA do Google. Crie uma chave em aistudio.google.com (Get API key) e cole em Configurações. Pode exigir faturamento ativo no Google.
+- Pontos que caem em móveis ou quadros são descartados quando a cor não bate com o resto da superfície. Ajustes finos: Seleção inteligente, Pincel e Borracha. Parede de destaque interna é marcada à mão.
 
 ## Dados das cores
 
@@ -50,7 +44,7 @@ js/color.js         ciência de cor (OKLab), classificação de família e subto
 js/questions.js     roteiro da entrevista
 js/recommend.js     motor de recomendação (3 opções + trim, teto, destaque)
 js/visualizer.js    seleção inteligente, pincel e repintura da foto
-js/ai.js            detecção automática das áreas via Gemini (mapa de cores)
+js/ai.js            detecção automática das áreas (Claude no app do Claude; Gemini opcional fora)
 js/report.js        apresentação para o cliente
 js/store.js         salvamento local (IndexedDB) e configurações
 js/app.js           ligação da interface

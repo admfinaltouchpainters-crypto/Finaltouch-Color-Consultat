@@ -137,7 +137,10 @@
     var sp = 0, out = [];
     // lightness gets less weight so shading across a wall does not stop the fill;
     // hue/chroma count more: paint color is constant while light varies
-    var wl = 0.3, wc = 4, tol2 = tol * tol, step2 = step * step, bridgeTol2 = tol2 * 0.64;
+    // gray/white surfaces have no hue to go by, so brightness must count more there
+    // (keeps a white lamp or a sheepskin out of a gray wall)
+    var seedC = Math.sqrt(a0 * a0 + b0 * b0);
+    var wl = seedC < 0.03 ? 0.38 : 0.3, wc = 4, tol2 = tol * tol, step2 = step * step, bridgeTol2 = tol2 * 0.64;
     function seedDist2(q) {
       var dl = (lab[q * 3] - L0) * wl, da = lab[q * 3 + 1] - a0, db = lab[q * 3 + 2] - b0;
       return dl * dl + wc * (da * da + db * db);
@@ -489,6 +492,56 @@
       self.touch(sname);
       cover[sname] = c / n;
     });
+    return cover;
+  };
+
+  /* Grow AI-suggested points (0-100 grid units) into masks. Each point is
+     grown with the smart fill; regions that are huge, tiny, or whose color
+     clearly differs from the surface's other regions (a point that landed on
+     a picture or a sofa) are dropped. Returns coverage per surface. */
+  Work.prototype.applySeeds = function (points, order, tolerance) {
+    var w = this.w, h = this.h, n = this.n, lab = this.lab, self = this;
+    var tol = tolerance || 30, cover = {}, report = {};
+    // start clean for the surfaces the AI handles (accent stays as the user left it)
+    order.forEach(function (s) { if (points[s]) { self.mask(s).fill(0); self.touch(s); } });
+    order.forEach(function (s) {
+      var pts = points[s] || [], regions = [];
+      var claimed = new Uint8Array(n);
+      pts.forEach(function (pt) {
+        var x = Math.min(w - 1, Math.max(0, Math.round(pt[0] / 100 * w)));
+        var y = Math.min(h - 1, Math.max(0, Math.round(pt[1] / 100 * h)));
+        var q = y * w + x;
+        if (claimed[q]) return;                      // already inside this surface
+        var idx = self.smartFill(x, y, tol, s);
+        if (idx.length < n * 0.0004 || idx.length > n * 0.75) return;
+        var L = 0, a = 0, b = 0;
+        for (var i = 0; i < idx.length; i++) { var p = idx[i] * 3; L += lab[p]; a += lab[p + 1]; b += lab[p + 2]; }
+        regions.push({ idx: idx, L: L / idx.length, a: a / idx.length, b: b / idx.length });
+        for (var j = 0; j < idx.length; j++) claimed[idx[j]] = 1;
+      });
+      // drop color outliers against the size-weighted median of the surface
+      // (the same paint in sun and shade keeps its hue, so only a different hue, saturation or a
+      // big brightness jump marks a point that landed on an object)
+      var keep = regions;
+      if (regions.length >= 2) {
+        var ref = regions.slice().sort(function (r1, r2) { return r2.idx.length - r1.idx.length; })[0];
+        var refC = Math.sqrt(ref.a * ref.a + ref.b * ref.b), refH = Math.atan2(ref.b, ref.a);
+        keep = regions.filter(function (r) {
+          if (r === ref) return true;
+          var C = Math.sqrt(r.a * r.a + r.b * r.b), H = Math.atan2(r.b, r.a);
+          if (Math.abs(r.L - ref.L) > 0.3) return false;
+          var dh = Math.abs(H - refH) * 180 / Math.PI; if (dh > 180) dh = 360 - dh;
+          if (Math.min(C, refC) > 0.02 && dh > 40) return false;
+          if (Math.abs(C / Math.max(0.2, r.L) - refC / Math.max(0.2, ref.L)) > 0.08) return false;
+          return true;
+        });
+      }
+      keep.forEach(function (r) { self.claim(s, r.idx); });
+      report[s] = { points: pts.length, regions: regions.length, kept: keep.length };
+      cover[s] = self.coverage(s);
+    });
+    this.lastSeedReport = report;
+    try { (typeof window !== 'undefined') && (window.__ftSeedReport = report); } catch (e) { /* ignore */ }
     return cover;
   };
 

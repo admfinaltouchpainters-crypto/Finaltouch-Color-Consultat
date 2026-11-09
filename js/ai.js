@@ -141,5 +141,110 @@
     return downscale(photoSrc, 1536).then(function (small) { return callImageModel(buildPrompt(option, project), small, settings); });
   }
 
-  root.FTAI = { detectSurfaces: detectSurfaces, repaint: repaint, MARKERS: MARKERS, markerPrompt: markerPrompt, DEFAULT_MODEL: DEFAULT_MODEL };
+  /* ---------- Claude (inside the Claude app, no key needed) ----------
+     The page asks Claude itself: it sends the photo with a labeled grid and
+     gets back points that sit on each surface. The app grows each point to
+     the surface's real edges. */
+  var claudeSample = null, claudeChecked = null;
+  function claudeProvider() {
+    if (claudeChecked) return claudeChecked;
+    claudeChecked = new Promise(function (res) {
+      try {
+        if (!root.claude || typeof root.claude.use !== 'function') return res(null);
+        root.claude.use('sample').then(function (s) {
+          if (!s) return res(null);
+          s.limits().then(function (lim) {
+            if (lim && lim.images) { claudeSample = s; res(s); } else res(null);
+          }, function () { res(null); });
+        }, function () { res(null); });
+      } catch (e) { res(null); }
+    });
+    return claudeChecked;
+  }
+
+  // photo with a labeled 0-100 grid, so Claude can point precisely
+  function gridImage(src) {
+    return root.FTVisualizer.loadImage(src).then(function (img) {
+      var k = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+      var w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      var g = cv.getContext('2d');
+      g.drawImage(img, 0, 0, w, h);
+      g.lineWidth = 1;
+      var fs = Math.max(11, Math.round(Math.min(w, h) / 50));
+      g.font = 'bold ' + fs + 'px sans-serif';
+      for (var i = 1; i < 10; i++) {
+        var x = Math.round(w * i / 10) + 0.5, y = Math.round(h * i / 10) + 0.5;
+        g.strokeStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.moveTo(x + 1, 0); g.lineTo(x + 1, h); g.moveTo(0, y + 1); g.lineTo(w, y + 1); g.stroke();
+        g.strokeStyle = 'rgba(255,235,0,.85)'; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+        var lab = String(i * 10);
+        [[x + 3, fs + 2], [3, y - 3]].forEach(function (p) {
+          g.lineWidth = 3; g.strokeStyle = '#000'; g.strokeText(lab, p[0], p[1]);
+          g.fillStyle = '#ffeb00'; g.fillText(lab, p[0], p[1]); g.lineWidth = 1;
+        });
+      }
+      return new Promise(function (res) { cv.toBlob(function (b) { res(b); }, 'image/jpeg', 0.9); });
+    });
+  }
+
+  function pointsPrompt(surfaces, project) {
+    var kind = project === 'exterior' ? 'exterior' : 'interior';
+    var list = surfaces.filter(function (s) { return DESCRIBE[kind][s]; });
+    var lines = list.map(function (s) { return '- "' + s + '": ' + DESCRIBE[kind][s]; });
+    var example = {}; list.forEach(function (s, i) { example[s] = i === 0 ? [[12, 30], [55, 22]] : []; });
+    return [
+      'This is a photo of a ' + (kind === 'exterior' ? 'house exterior' : 'room') + ' with a coordinate grid drawn on top.',
+      'x goes from 0 (left edge) to 100 (right edge), y from 0 (top edge) to 100 (bottom edge); the yellow grid lines are every 10 units and are labeled.',
+      'A painting contractor\'s software will recolor these surfaces. For each one, give points (x, y in grid units, decimals allowed) that land ON that surface:',
+      lines.join('\n'),
+      'Rules:',
+      '- Only where the painted surface itself is visible: never on furniture, art, frames, mirrors, lamps, windows, glass, curtains, plants, outlets, switches or the floor.',
+      '- Keep every point at least 2 units away from any edge, corner or object.',
+      '- Cover every separate visible part of the surface (each wall plane; the wall above, below and beside furniture; each strip of trim; each door), with 3 to 6 points spread over big areas, including areas in shadow and in bright light. At most 20 points per surface.',
+      '- If a surface is not visible in this photo, give an empty list.',
+      'Reply with only JSON in exactly this shape: ' + JSON.stringify(example)
+    ].join('\n');
+  }
+
+  function claudeError(e) {
+    var c = e && e.code;
+    if (c === 'not_granted') return 'O app não tem permissão para usar o Claude. Autorize quando o Claude perguntar (ou no menu de permissões do artifact) e toque em "Detectar áreas com IA".';
+    if (c === 'rate_limited') return 'O Claude está com limite de uso agora. Espere um pouco e toque em "Detectar áreas com IA".';
+    if (c === 'image_rejected') return 'O Claude não aceitou esta foto. Tente uma foto JPG ou PNG menor.';
+    if (c === 'invalid_json' || c === 'empty_completion') return 'O Claude não devolveu as áreas desta vez. Toque em "Detectar áreas com IA" para tentar de novo.';
+    if (c === 'refused') return 'O Claude recusou esta foto. Tente outra foto do ambiente.';
+    if (c === 'sampling_disabled' || c === 'capability_disabled' || c === 'images_unavailable') return 'O Claude não está disponível para esta conta neste app. Marque as paredes com a Seleção inteligente.';
+    if (c === 'session_expired') return 'Sua sessão do Claude expirou. Entre de novo e tente outra vez.';
+    return 'Não consegui falar com o Claude agora. Tente "Detectar áreas com IA" de novo em instantes.';
+  }
+
+  function claudePoints(photoSrc, surfaces, project) {
+    return claudeProvider().then(function (s) {
+      if (!s) throw new Error('O Claude não está disponível aqui.');
+      var kind = project === 'exterior' ? 'exterior' : 'interior';
+      var surf = surfaces.filter(function (x) { return DESCRIBE[kind][x]; });
+      if (!surf.length) surf = ['walls'];
+      return gridImage(photoSrc).then(function (blob) {
+        return s.json(pointsPrompt(surf, project), { images: blob, modelTier: 'default', cache: false });
+      }).then(function (data) {
+        var out = {};
+        surf.forEach(function (k) {
+          var arr = (data && Array.isArray(data[k])) ? data[k] : [];
+          out[k] = arr.map(function (p) {
+            var x = Array.isArray(p) ? +p[0] : +(p && p.x), y = Array.isArray(p) ? +p[1] : +(p && p.y);
+            return [x, y];
+          }).filter(function (p) { return isFinite(p[0]) && isFinite(p[1]) && p[0] >= 0 && p[0] <= 100 && p[1] >= 0 && p[1] <= 100; }).slice(0, 20);
+        });
+        return { points: out, surfaces: surf };
+      }, function (e) {
+        if (e && e.code) throw new Error(claudeError(e));
+        throw e;
+      });
+    });
+  }
+
+  root.FTAI = {
+    detectSurfaces: detectSurfaces, repaint: repaint, MARKERS: MARKERS, markerPrompt: markerPrompt, DEFAULT_MODEL: DEFAULT_MODEL,
+    claudeProvider: claudeProvider, claudePoints: claudePoints, pointsPrompt: pointsPrompt, gridImage: gridImage
+  };
 })(typeof window !== 'undefined' ? window : globalThis);

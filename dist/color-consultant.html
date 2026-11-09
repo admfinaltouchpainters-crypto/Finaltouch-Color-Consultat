@@ -417,7 +417,7 @@ figcaption { font-size: 8.5pt; color: var(--p-soft); margin-top: 4px; }
       <div>
         <p class="eyebrow">Etapa 3 · Visualizador</p>
         <h1>Pintar a foto do cliente</h1>
-        <p class="lede">Jogue a foto: a IA acha paredes, trim, teto, portas e armários e o app pinta as 3 opções com a cor exata. Se quiser ajustar, use a Seleção inteligente, o Pincel ou a Borracha.</p>
+        <p class="lede">Jogue a foto: o Claude acha paredes, trim, teto, portas e armários e o app pinta as 3 opções com a cor exata. Se quiser ajustar, use a Seleção inteligente, o Pincel ou a Borracha.</p>
       </div>
       <div class="row-gap">
         <label class="button primary file-btn">Adicionar fotos<input id="photoInput" type="file" accept="image/*" multiple></label>
@@ -1565,7 +1565,10 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     var sp = 0, out = [];
     // lightness gets less weight so shading across a wall does not stop the fill;
     // hue/chroma count more: paint color is constant while light varies
-    var wl = 0.3, wc = 4, tol2 = tol * tol, step2 = step * step, bridgeTol2 = tol2 * 0.64;
+    // gray/white surfaces have no hue to go by, so brightness must count more there
+    // (keeps a white lamp or a sheepskin out of a gray wall)
+    var seedC = Math.sqrt(a0 * a0 + b0 * b0);
+    var wl = seedC < 0.03 ? 0.38 : 0.3, wc = 4, tol2 = tol * tol, step2 = step * step, bridgeTol2 = tol2 * 0.64;
     function seedDist2(q) {
       var dl = (lab[q * 3] - L0) * wl, da = lab[q * 3 + 1] - a0, db = lab[q * 3 + 2] - b0;
       return dl * dl + wc * (da * da + db * db);
@@ -1920,6 +1923,56 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     return cover;
   };
 
+  /* Grow AI-suggested points (0-100 grid units) into masks. Each point is
+     grown with the smart fill; regions that are huge, tiny, or whose color
+     clearly differs from the surface's other regions (a point that landed on
+     a picture or a sofa) are dropped. Returns coverage per surface. */
+  Work.prototype.applySeeds = function (points, order, tolerance) {
+    var w = this.w, h = this.h, n = this.n, lab = this.lab, self = this;
+    var tol = tolerance || 30, cover = {}, report = {};
+    // start clean for the surfaces the AI handles (accent stays as the user left it)
+    order.forEach(function (s) { if (points[s]) { self.mask(s).fill(0); self.touch(s); } });
+    order.forEach(function (s) {
+      var pts = points[s] || [], regions = [];
+      var claimed = new Uint8Array(n);
+      pts.forEach(function (pt) {
+        var x = Math.min(w - 1, Math.max(0, Math.round(pt[0] / 100 * w)));
+        var y = Math.min(h - 1, Math.max(0, Math.round(pt[1] / 100 * h)));
+        var q = y * w + x;
+        if (claimed[q]) return;                      // already inside this surface
+        var idx = self.smartFill(x, y, tol, s);
+        if (idx.length < n * 0.0004 || idx.length > n * 0.75) return;
+        var L = 0, a = 0, b = 0;
+        for (var i = 0; i < idx.length; i++) { var p = idx[i] * 3; L += lab[p]; a += lab[p + 1]; b += lab[p + 2]; }
+        regions.push({ idx: idx, L: L / idx.length, a: a / idx.length, b: b / idx.length });
+        for (var j = 0; j < idx.length; j++) claimed[idx[j]] = 1;
+      });
+      // drop color outliers against the size-weighted median of the surface
+      // (the same paint in sun and shade keeps its hue, so only a different hue, saturation or a
+      // big brightness jump marks a point that landed on an object)
+      var keep = regions;
+      if (regions.length >= 2) {
+        var ref = regions.slice().sort(function (r1, r2) { return r2.idx.length - r1.idx.length; })[0];
+        var refC = Math.sqrt(ref.a * ref.a + ref.b * ref.b), refH = Math.atan2(ref.b, ref.a);
+        keep = regions.filter(function (r) {
+          if (r === ref) return true;
+          var C = Math.sqrt(r.a * r.a + r.b * r.b), H = Math.atan2(r.b, r.a);
+          if (Math.abs(r.L - ref.L) > 0.3) return false;
+          var dh = Math.abs(H - refH) * 180 / Math.PI; if (dh > 180) dh = 360 - dh;
+          if (Math.min(C, refC) > 0.02 && dh > 40) return false;
+          if (Math.abs(C / Math.max(0.2, r.L) - refC / Math.max(0.2, ref.L)) > 0.08) return false;
+          return true;
+        });
+      }
+      keep.forEach(function (r) { self.claim(s, r.idx); });
+      report[s] = { points: pts.length, regions: regions.length, kept: keep.length };
+      cover[s] = self.coverage(s);
+    });
+    this.lastSeedReport = report;
+    try { (typeof window !== 'undefined') && (window.__ftSeedReport = report); } catch (e) { /* ignore */ }
+    return cover;
+  };
+
   Work.prototype.coverage = function (s) {
     var m = this.masks[s]; if (!m) return 0;
     var c = 0; for (var i = 0; i < m.length; i++) if (m[i]) c++;
@@ -2100,7 +2153,112 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     return downscale(photoSrc, 1536).then(function (small) { return callImageModel(buildPrompt(option, project), small, settings); });
   }
 
-  root.FTAI = { detectSurfaces: detectSurfaces, repaint: repaint, MARKERS: MARKERS, markerPrompt: markerPrompt, DEFAULT_MODEL: DEFAULT_MODEL };
+  /* ---------- Claude (inside the Claude app, no key needed) ----------
+     The page asks Claude itself: it sends the photo with a labeled grid and
+     gets back points that sit on each surface. The app grows each point to
+     the surface's real edges. */
+  var claudeSample = null, claudeChecked = null;
+  function claudeProvider() {
+    if (claudeChecked) return claudeChecked;
+    claudeChecked = new Promise(function (res) {
+      try {
+        if (!root.claude || typeof root.claude.use !== 'function') return res(null);
+        root.claude.use('sample').then(function (s) {
+          if (!s) return res(null);
+          s.limits().then(function (lim) {
+            if (lim && lim.images) { claudeSample = s; res(s); } else res(null);
+          }, function () { res(null); });
+        }, function () { res(null); });
+      } catch (e) { res(null); }
+    });
+    return claudeChecked;
+  }
+
+  // photo with a labeled 0-100 grid, so Claude can point precisely
+  function gridImage(src) {
+    return root.FTVisualizer.loadImage(src).then(function (img) {
+      var k = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+      var w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      var g = cv.getContext('2d');
+      g.drawImage(img, 0, 0, w, h);
+      g.lineWidth = 1;
+      var fs = Math.max(11, Math.round(Math.min(w, h) / 50));
+      g.font = 'bold ' + fs + 'px sans-serif';
+      for (var i = 1; i < 10; i++) {
+        var x = Math.round(w * i / 10) + 0.5, y = Math.round(h * i / 10) + 0.5;
+        g.strokeStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.moveTo(x + 1, 0); g.lineTo(x + 1, h); g.moveTo(0, y + 1); g.lineTo(w, y + 1); g.stroke();
+        g.strokeStyle = 'rgba(255,235,0,.85)'; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+        var lab = String(i * 10);
+        [[x + 3, fs + 2], [3, y - 3]].forEach(function (p) {
+          g.lineWidth = 3; g.strokeStyle = '#000'; g.strokeText(lab, p[0], p[1]);
+          g.fillStyle = '#ffeb00'; g.fillText(lab, p[0], p[1]); g.lineWidth = 1;
+        });
+      }
+      return new Promise(function (res) { cv.toBlob(function (b) { res(b); }, 'image/jpeg', 0.9); });
+    });
+  }
+
+  function pointsPrompt(surfaces, project) {
+    var kind = project === 'exterior' ? 'exterior' : 'interior';
+    var list = surfaces.filter(function (s) { return DESCRIBE[kind][s]; });
+    var lines = list.map(function (s) { return '- "' + s + '": ' + DESCRIBE[kind][s]; });
+    var example = {}; list.forEach(function (s, i) { example[s] = i === 0 ? [[12, 30], [55, 22]] : []; });
+    return [
+      'This is a photo of a ' + (kind === 'exterior' ? 'house exterior' : 'room') + ' with a coordinate grid drawn on top.',
+      'x goes from 0 (left edge) to 100 (right edge), y from 0 (top edge) to 100 (bottom edge); the yellow grid lines are every 10 units and are labeled.',
+      'A painting contractor\'s software will recolor these surfaces. For each one, give points (x, y in grid units, decimals allowed) that land ON that surface:',
+      lines.join('\n'),
+      'Rules:',
+      '- Only where the painted surface itself is visible: never on furniture, art, frames, mirrors, lamps, windows, glass, curtains, plants, outlets, switches or the floor.',
+      '- Keep every point at least 2 units away from any edge, corner or object.',
+      '- Cover every separate visible part of the surface (each wall plane; the wall above, below and beside furniture; each strip of trim; each door), with 3 to 6 points spread over big areas, including areas in shadow and in bright light. At most 20 points per surface.',
+      '- If a surface is not visible in this photo, give an empty list.',
+      'Reply with only JSON in exactly this shape: ' + JSON.stringify(example)
+    ].join('\n');
+  }
+
+  function claudeError(e) {
+    var c = e && e.code;
+    if (c === 'not_granted') return 'O app não tem permissão para usar o Claude. Autorize quando o Claude perguntar (ou no menu de permissões do artifact) e toque em "Detectar áreas com IA".';
+    if (c === 'rate_limited') return 'O Claude está com limite de uso agora. Espere um pouco e toque em "Detectar áreas com IA".';
+    if (c === 'image_rejected') return 'O Claude não aceitou esta foto. Tente uma foto JPG ou PNG menor.';
+    if (c === 'invalid_json' || c === 'empty_completion') return 'O Claude não devolveu as áreas desta vez. Toque em "Detectar áreas com IA" para tentar de novo.';
+    if (c === 'refused') return 'O Claude recusou esta foto. Tente outra foto do ambiente.';
+    if (c === 'sampling_disabled' || c === 'capability_disabled' || c === 'images_unavailable') return 'O Claude não está disponível para esta conta neste app. Marque as paredes com a Seleção inteligente.';
+    if (c === 'session_expired') return 'Sua sessão do Claude expirou. Entre de novo e tente outra vez.';
+    return 'Não consegui falar com o Claude agora. Tente "Detectar áreas com IA" de novo em instantes.';
+  }
+
+  function claudePoints(photoSrc, surfaces, project) {
+    return claudeProvider().then(function (s) {
+      if (!s) throw new Error('O Claude não está disponível aqui.');
+      var kind = project === 'exterior' ? 'exterior' : 'interior';
+      var surf = surfaces.filter(function (x) { return DESCRIBE[kind][x]; });
+      if (!surf.length) surf = ['walls'];
+      return gridImage(photoSrc).then(function (blob) {
+        return s.json(pointsPrompt(surf, project), { images: blob, modelTier: 'default', cache: false });
+      }).then(function (data) {
+        var out = {};
+        surf.forEach(function (k) {
+          var arr = (data && Array.isArray(data[k])) ? data[k] : [];
+          out[k] = arr.map(function (p) {
+            var x = Array.isArray(p) ? +p[0] : +(p && p.x), y = Array.isArray(p) ? +p[1] : +(p && p.y);
+            return [x, y];
+          }).filter(function (p) { return isFinite(p[0]) && isFinite(p[1]) && p[0] >= 0 && p[0] <= 100 && p[1] >= 0 && p[1] <= 100; }).slice(0, 20);
+        });
+        return { points: out, surfaces: surf };
+      }, function (e) {
+        if (e && e.code) throw new Error(claudeError(e));
+        throw e;
+      });
+    });
+  }
+
+  root.FTAI = {
+    detectSurfaces: detectSurfaces, repaint: repaint, MARKERS: MARKERS, markerPrompt: markerPrompt, DEFAULT_MODEL: DEFAULT_MODEL,
+    claudeProvider: claudeProvider, claudePoints: claudePoints, pointsPrompt: pointsPrompt, gridImage: gridImage
+  };
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
@@ -2944,8 +3102,11 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
       photos.forEach(function (p) { state.photos.push(p); });
       ui.photo = photos[0].id; ui.undo = [];
       persist(); renderPhotos();
-      if (aiReady()) autoDetectAll(photos);
-      else toast('Foto adicionada. Toque na parede com a Seleção inteligente, ou ative a IA para marcar sozinho.');
+      pickProvider().then(function () {
+        renderAiNotice();
+        if (aiReady()) autoDetectAll(photos);
+        else toast('Foto adicionada. Toque na parede com a Seleção inteligente para marcar as áreas.');
+      });
     }).catch(function (err) { toast(err.message, true); });
   });
 
@@ -3009,13 +3170,20 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   }
 
   /* ---------- automatic detection with AI ---------- */
-  function aiReady() { return !!(settings.geminiKey || '').trim() && !embedded; }
+  var aiProvider = null;   // 'claude' inside the Claude app, 'gemini' with a key, null = manual
+  function pickProvider() {
+    return AI.claudeProvider().then(function (s) {
+      aiProvider = s ? 'claude' : ((settings.geminiKey || '').trim() && !embedded ? 'gemini' : null);
+      return aiProvider;
+    });
+  }
+  function aiReady() { return !!aiProvider; }
   function renderAiNotice() {
     var el = $('#aiNotice');
     if (aiReady()) { el.hidden = true; return; }
     el.hidden = false;
     el.innerHTML = embedded
-      ? '<p><b>Dentro do Claude a IA não roda.</b> Para jogar a foto e as 3 opções saírem prontas, abra o app pelo site (GitHub Pages) ou pelo arquivo index.html. Aqui você pode marcar as paredes com a Seleção inteligente.</p>'
+      ? '<p><b>A IA não está disponível nesta visualização.</b> Abra o app pelo link do Claude (claude.ai) para que as fotos saiam sozinhas. Aqui você pode marcar as paredes com a Seleção inteligente.</p>'
       : '<p><b>Quer que as fotos saiam sozinhas?</b> Ative a IA uma vez (1 minuto, chave grátis do Google) e é só jogar a foto. Sem a IA, marque as paredes com a Seleção inteligente.</p><button type="button" class="primary" id="btnEnableAi">Ativar IA</button>';
   }
   $('#aiNotice').addEventListener('click', function (e) { if (e.target.id === 'btnEnableAi') { openSettings(); setTimeout(function () { $('#s_geminiKey').focus(); }, 50); } });
@@ -3030,8 +3198,21 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     return list.length ? list : ['walls'];
   }
   function autoDetect(ph, label) {
-    setBusy(true, (label || 'A IA está analisando a foto') + '… (uns 10 a 20 segundos)');
     var surfs = detectSurfacesFor();
+    if (aiProvider === 'claude') {
+      setBusy(true, (label || 'O Claude está olhando a foto') + '… (pode levar até 1 minuto)');
+      return AI.claudePoints(ph.src, surfs, state.answers.project).then(function (res) {
+        return ensureWork(ph.id).then(function (w) {
+          if (ui.photo === ph.id) pushUndo(w);
+          var cover = w.applySeeds(res.points, res.surfaces);
+          ph.renders = {}; ph.ai = {}; ph.useAi = {};
+          state.options.forEach(function (o) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); });
+          persist();
+          return cover;
+        });
+      });
+    }
+    setBusy(true, (label || 'A IA está analisando a foto') + '… (uns 10 a 20 segundos)');
     return AI.detectSurfaces(ph.src, surfs, state.answers.project, settings).then(function (res) {
       return Promise.all([V.loadImage(res.marker), ensureWork(ph.id)]).then(function (r) {
         var w = r[1];
@@ -3068,9 +3249,11 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   $('#btnAi').addEventListener('click', function () {
     var ph = ui.photo && photoById(ui.photo);
     if (!ph) { toast('Adicione uma foto primeiro', true); return; }
-    if (embedded) { toast('Dentro do Claude a IA não roda. Abra o app pelo site (GitHub Pages).', true); return; }
-    if (!aiReady()) { toast('Coloque a chave do Gemini em Configurações.', true); openSettings(); return; }
-    autoDetectAll([ph]);
+    pickProvider().then(function () {
+      if (aiReady()) { autoDetectAll([ph]); return; }
+      if (embedded) toast('A IA não está disponível aqui. Marque as paredes com a Seleção inteligente.', true);
+      else { toast('Coloque a chave do Gemini em Configurações.', true); openSettings(); }
+    });
   });
 
   /* synthetic room so the tool can be tried without a client photo */
@@ -3148,7 +3331,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     else toast('Configurações salvas');
     applyLogo();
     if (ui.view === 'presentation') renderReport();
-    if (ui.view === 'photos') renderPhotos();
+    pickProvider().then(function () { if (ui.view === 'photos') renderPhotos(); });
   });
   function applyLogo() { $('#brandLogo').src = logoSrc(); }
 
@@ -3195,6 +3378,7 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
   /* ---------- boot ---------- */
   function boot() {
     applyLogo();
+    pickProvider().then(function () { if (ui.view === 'photos') renderAiNotice(); });
     var last = null;
     try { last = localStorage.getItem('ft-cc-last'); } catch (e) { /* ignore */ }
     var start = last ? S.load(last).catch(function () { return null; }) : Promise.resolve(null);
