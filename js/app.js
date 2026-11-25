@@ -605,7 +605,60 @@
     }).catch(function (err) { toast(err.message, true); });
   });
 
-  $('#btnSamplePhoto').addEventListener('click', function () {
+  /* ---------- sample rooms (3D renders with exact surface masks) ---------- */
+  var roomsP = null;
+  function loadRooms() {
+    if (window.FT_ROOMS) return Promise.resolve(window.FT_ROOMS);
+    if (roomsP) return roomsP;
+    roomsP = new Promise(function (res, rej) {
+      var sc = document.createElement('script');
+      sc.src = (window.FT_ROOMS_URL || 'rooms/rooms.js');
+      sc.onload = function () { window.FT_ROOMS ? res(window.FT_ROOMS) : rej(new Error('vazio')); };
+      sc.onerror = function () { roomsP = null; rej(new Error('Não consegui carregar os ambientes prontos.')); };
+      document.head.appendChild(sc);
+    });
+    return roomsP;
+  }
+  function openRooms() {
+    $('#dlgRooms').showModal();
+    var kind = state.answers.project === 'exterior' ? 'exterior' : 'interior';
+    loadRooms().then(function (rooms) {
+      var list = rooms.filter(function (r) { return r.kind === kind; }).concat(rooms.filter(function (r) { return r.kind !== kind; }));
+      $('#roomGrid').innerHTML = list.map(function (r) {
+        return '<button type="button" class="room-card" data-room="' + r.id + '"><img src="' + r.thumb + '" alt=""><span><b>' + esc(r.name) + '</b>' +
+          (r.kind !== kind ? '<span class="muted small">' + (r.kind === 'exterior' ? 'Externo' : 'Interno') + '</span>' : '') + '</span></button>';
+      }).join('');
+    }, function (e) { $('#roomGrid').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  $('#roomGrid').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-room]'); if (!b) return;
+    e.preventDefault();
+    var r = (window.FT_ROOMS || []).filter(function (x) { return x.id === b.dataset.room; })[0];
+    if (!r) return;
+    $('#dlgRooms').close();
+    addRoom(r);
+  });
+  function addRoom(r) {
+    var n = r.w * r.h, masks = {}, surfs = surfacesForProject();
+    Object.keys(r.masks).forEach(function (k) { masks[k] = V.decodeMask(r.masks[k], n); });
+    // interior accent wall not chosen in this project: it is just another wall
+    if (masks.accent && r.kind === 'interior' && surfs.indexOf('accent') < 0) {
+      var wm = masks.walls || (masks.walls = new Uint8Array(n));
+      for (var i = 0; i < n; i++) if (masks.accent[i]) wm[i] = 255;
+      delete masks.accent;
+    }
+    var ph = { id: 'p' + Date.now().toString(36), name: r.name, w: r.w, h: r.h, src: r.src, masks: masks, renders: {}, ai: {}, useAi: {}, room: r.id };
+    state.photos.push(ph); ui.photo = ph.id; ui.undo = [];
+    ensureWork(ph.id).then(function (w) {
+      state.options.forEach(function (o) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); });
+      persist(); renderPhotos();
+      toast(r.name + ': 3 opções prontas');
+    });
+    renderPhotos();
+  }
+
+  $('#btnSamplePhoto').addEventListener('click', openRooms);
+  $('#btnSamplePhotoOld') && $('#btnSamplePhotoOld').addEventListener('click', function () {
     var p = samplePhoto();
     state.photos.push(p); ui.photo = p.id; persist(); renderPhotos();
     toast('Foto de exemplo criada. Toque na parede para testar.');

@@ -198,6 +198,12 @@ textarea { min-height: 90px; resize: vertical; }
 .pk span { padding: 6px 8px 8px; font-size: 12px; line-height: 1.3; }
 .pk b { display: block; font-size: 13px; }
 .pk em { font-style: normal; color: var(--ink-2); }
+.room-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.room-card { padding: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; overflow: hidden; display: grid; text-align: left; font-weight: 400; }
+.room-card img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; display: block; }
+.room-card span { padding: 8px 10px; font-size: 14px; }
+.room-card b { display: block; }
+.room-card:hover { border-color: var(--ink-2); }
 .proj-list { display: grid; gap: 8px; }
 .proj { display: flex; justify-content: space-between; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; flex-wrap: wrap; }
 .proj.on { border-color: var(--accent); }
@@ -421,7 +427,7 @@ figcaption { font-size: 8.5pt; color: var(--p-soft); margin-top: 4px; }
       </div>
       <div class="row-gap">
         <label class="button primary file-btn">Adicionar fotos<input id="photoInput" type="file" accept="image/*" multiple></label>
-        <button class="ghost" id="btnSamplePhoto" type="button">Foto de exemplo</button>
+        <button class="ghost" id="btnSamplePhoto" type="button">Ambientes prontos</button>
       </div>
     </div>
     <div class="notice" id="aiNotice" hidden></div>
@@ -562,6 +568,14 @@ figcaption { font-size: 8.5pt; color: var(--p-soft); margin-top: 4px; }
 </dialog>
 
 <!-- Projects -->
+<dialog id="dlgRooms" class="dlg wide">
+  <form method="dialog" class="dlg-in">
+    <div class="dlg-head"><h2>Ambientes prontos</h2><button class="ghost sm" value="cancel">Fechar</button></div>
+    <p class="muted small">Ambientes em 3D com parede, teto, trim, portas e armários separados com precisão. Toque num ambiente: as 3 opções saem pintadas na hora. Bom para mostrar ao cliente quando não há foto boa do cômodo.</p>
+    <div id="roomGrid" class="room-grid"><p class="muted">Carregando…</p></div>
+  </form>
+</dialog>
+
 <dialog id="dlgProjects" class="dlg">
   <form method="dialog" class="dlg-in">
     <div class="dlg-head"><h2>Projetos salvos</h2><button class="ghost sm" value="cancel">Fechar</button></div>
@@ -3410,7 +3424,60 @@ window.FT_SW=[["SW 6840","Exuberant Pink","B54D7F",16.6,0,1,1,"101-C1",["SW 8917
     }).catch(function (err) { toast(err.message, true); });
   });
 
-  $('#btnSamplePhoto').addEventListener('click', function () {
+  /* ---------- sample rooms (3D renders with exact surface masks) ---------- */
+  var roomsP = null;
+  function loadRooms() {
+    if (window.FT_ROOMS) return Promise.resolve(window.FT_ROOMS);
+    if (roomsP) return roomsP;
+    roomsP = new Promise(function (res, rej) {
+      var sc = document.createElement('script');
+      sc.src = (window.FT_ROOMS_URL || 'rooms/rooms.js');
+      sc.onload = function () { window.FT_ROOMS ? res(window.FT_ROOMS) : rej(new Error('vazio')); };
+      sc.onerror = function () { roomsP = null; rej(new Error('Não consegui carregar os ambientes prontos.')); };
+      document.head.appendChild(sc);
+    });
+    return roomsP;
+  }
+  function openRooms() {
+    $('#dlgRooms').showModal();
+    var kind = state.answers.project === 'exterior' ? 'exterior' : 'interior';
+    loadRooms().then(function (rooms) {
+      var list = rooms.filter(function (r) { return r.kind === kind; }).concat(rooms.filter(function (r) { return r.kind !== kind; }));
+      $('#roomGrid').innerHTML = list.map(function (r) {
+        return '<button type="button" class="room-card" data-room="' + r.id + '"><img src="' + r.thumb + '" alt=""><span><b>' + esc(r.name) + '</b>' +
+          (r.kind !== kind ? '<span class="muted small">' + (r.kind === 'exterior' ? 'Externo' : 'Interno') + '</span>' : '') + '</span></button>';
+      }).join('');
+    }, function (e) { $('#roomGrid').innerHTML = '<p class="muted">' + esc(e.message) + '</p>'; });
+  }
+  $('#roomGrid').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-room]'); if (!b) return;
+    e.preventDefault();
+    var r = (window.FT_ROOMS || []).filter(function (x) { return x.id === b.dataset.room; })[0];
+    if (!r) return;
+    $('#dlgRooms').close();
+    addRoom(r);
+  });
+  function addRoom(r) {
+    var n = r.w * r.h, masks = {}, surfs = surfacesForProject();
+    Object.keys(r.masks).forEach(function (k) { masks[k] = V.decodeMask(r.masks[k], n); });
+    // interior accent wall not chosen in this project: it is just another wall
+    if (masks.accent && r.kind === 'interior' && surfs.indexOf('accent') < 0) {
+      var wm = masks.walls || (masks.walls = new Uint8Array(n));
+      for (var i = 0; i < n; i++) if (masks.accent[i]) wm[i] = 255;
+      delete masks.accent;
+    }
+    var ph = { id: 'p' + Date.now().toString(36), name: r.name, w: r.w, h: r.h, src: r.src, masks: masks, renders: {}, ai: {}, useAi: {}, room: r.id };
+    state.photos.push(ph); ui.photo = ph.id; ui.undo = [];
+    ensureWork(ph.id).then(function (w) {
+      state.options.forEach(function (o) { ph.renders[o.id] = w.toDataURL(optColors(o), 0.88); });
+      persist(); renderPhotos();
+      toast(r.name + ': 3 opções prontas');
+    });
+    renderPhotos();
+  }
+
+  $('#btnSamplePhoto').addEventListener('click', openRooms);
+  $('#btnSamplePhotoOld') && $('#btnSamplePhotoOld').addEventListener('click', function () {
     var p = samplePhoto();
     state.photos.push(p); ui.photo = p.id; persist(); renderPhotos();
     toast('Foto de exemplo criada. Toque na parede para testar.');

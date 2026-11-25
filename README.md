@@ -27,6 +27,12 @@ Ao jogar a foto, o app roda no próprio aparelho um modelo de reconhecimento de 
 - Reservas (só se o modelo não carregar): o próprio Claude (no app do Claude) ou a IA do Google com chave em Configurações.
 - Modelo: `tools/export_segmodel.py` converte o arquivo TFLite oficial (TensorFlow Models, Apache-2.0) em `models/seg-graph.json` + `models/seg-weights.bin`.
 
+### Ambientes prontos (3D, troca de cor perfeita)
+Na etapa *Fotos*, o botão **Ambientes prontos** abre 5 ambientes renderizados em 3D (sala, quarto com parede de destaque, cozinha, sala de jantar e fachada colonial). Como cada parede, teto, trim, porta, armário e destaque é um objeto separado no 3D, as áreas são exatas e a troca de cor sai perfeita. Útil quando não há foto boa do cômodo do cliente.
+
+- Gerados com Blender/Cycles por `tools/rooms/build_rooms.py` e empacotados por `tools/rooms/pack_rooms.py` em `rooms/rooms.js` (foto + áreas).
+- Para criar mais ambientes: acrescente uma função `room_*` em `build_rooms.py`, rode o build (`pip install bpy`) e o pack.
+
 ## Dados das cores
 
 `data/colors.js` é gerado por `tools/build_colors.py` a partir de cópias públicas dos catálogos:
@@ -54,4 +60,6 @@ js/report.js        apresentação para o cliente
 js/store.js         salvamento local (IndexedDB) e configurações
 js/app.js           ligação da interface
 tools/bundle.py     gera um arquivo HTML único (versão para abrir no Claude)
+tools/rooms/        ambientes prontos em 3D (Blender) e empacotador
+rooms/rooms.js      ambientes prontos (foto + áreas exatas)
 ```

@@ -88,7 +88,7 @@
       </div>
       <div class="row-gap">
         <label class="button primary file-btn">Adicionar fotos<input id="photoInput" type="file" accept="image/*" multiple></label>
-        <button class="ghost" id="btnSamplePhoto" type="button">Foto de exemplo</button>
+        <button class="ghost" id="btnSamplePhoto" type="button">Ambientes prontos</button>
       </div>
     </div>
     <div class="notice" id="aiNotice" hidden></div>
@@ -229,6 +229,14 @@
 </dialog>
 
 <!-- Projects -->
+<dialog id="dlgRooms" class="dlg wide">
+  <form method="dialog" class="dlg-in">
+    <div class="dlg-head"><h2>Ambientes prontos</h2><button class="ghost sm" value="cancel">Fechar</button></div>
+    <p class="muted small">Ambientes em 3D com parede, teto, trim, portas e armários separados com precisão. Toque num ambiente: as 3 opções saem pintadas na hora. Bom para mostrar ao cliente quando não há foto boa do cômodo.</p>
+    <div id="roomGrid" class="room-grid"><p class="muted">Carregando…</p></div>
+  </form>
+</dialog>
+
 <dialog id="dlgProjects" class="dlg">
   <form method="dialog" class="dlg-in">
     <div class="dlg-head"><h2>Projetos salvos</h2><button class="ghost sm" value="cancel">Fechar</button></div>
