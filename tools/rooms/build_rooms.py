@@ -891,6 +891,7 @@ def render_labels(out_png, width, height):
     if s.world:
         s.world.node_tree.nodes['Background'].inputs['Strength'].default_value = 0.0
     s.view_settings.view_transform = 'Raw'; s.view_settings.look = 'None'
+    s.view_settings.exposure = 0.0; s.view_settings.gamma = 1.0
     s.cycles.samples = 1; s.cycles.use_denoising = False
     s.cycles.max_bounces = 0
     s.cycles.filter_width = 0.01
@@ -905,11 +906,13 @@ def main():
     args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else sys.argv[1:]
     out = args[0]; os.makedirs(out, exist_ok=True)
     samples, width = 160, 1600
+    labels_only = False
     names = []
     i = 1
     while i < len(args):
         if args[i] == '--samples': samples = int(args[i + 1]); i += 2
         elif args[i] == '--size': width = int(args[i + 1]); i += 2
+        elif args[i] == '--labels-only': labels_only = True; i += 1
         else: names.append(args[i]); i += 1
     names = names or list(ROOMS)
     height = int(width * 2 / 3)
@@ -917,7 +920,9 @@ def main():
         t = time.time()
         reset(); _mats.clear(); random.seed(1)
         ROOMS[name]()
-        render(os.path.join(out, name + '.png'), samples, width, height)
+        if not labels_only:
+            render(os.path.join(out, name + '.png'), samples, width, height)
+        s = bpy.context.scene; s.render.resolution_x = width; s.render.resolution_y = height; s.render.resolution_percentage = 100
         render_labels(os.path.join(out, name + '-labels.png'), width, height)
         print('ROOM', name, 'done in', round(time.time() - t), 's', flush=True)
 
