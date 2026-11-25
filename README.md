@@ -32,6 +32,14 @@ Na etapa *Fotos*, o botão **Ambientes prontos** abre 5 ambientes renderizados e
 
 - Gerados com Blender/Cycles por `tools/rooms/build_rooms.py` e empacotados por `tools/rooms/pack_rooms.py` em `rooms/rooms.js` (foto + áreas).
 - Para criar mais ambientes: acrescente uma função `room_*` em `build_rooms.py`, rode o build (`pip install bpy`) e o pack.
+- Materiais: rode `tools/rooms/fetch_assets.sh` antes do build.
+
+**Créditos dos ambientes 3D** (modelos do Khronos glTF-Sample-Assets; céus HDR e texturas do Poly Haven/three.js):
+- Glam Velvet Sofa, Chair Damask Purplegold, Specular Silk Pouf © Wayfair LLC, CC BY 4.0
+- Sheen Chair © Wayfair LLC, CC0
+- Diffuse Transmission Plant © Darmstadt Graphics Group GmbH, CC BY 4.0
+- Glass Vase Flowers, CC0
+- Céus HDR forest_slope e rooitou_park (Poly Haven, CC0); texturas de madeira, grama e tijolo (exemplos do three.js, MIT)
 
 ## Dados das cores
 

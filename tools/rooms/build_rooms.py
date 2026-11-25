@@ -10,6 +10,11 @@ Writes <room>.png (photo) and <room>-labels.png (label ids as gray levels).
 import bpy, math, sys, os, random, time
 from mathutils import Vector
 
+ASSETS = os.environ.get('FT_ASSETS', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets'))
+
+def asset(name):
+    return os.path.join(ASSETS, name)
+
 LABEL = {'none': 0, 'walls': 1, 'ceiling': 2, 'trim': 3, 'doors': 4, 'cabinets': 5, 'accent': 6}
 
 # ----------------------------------------------------------------- scene setup
@@ -22,6 +27,7 @@ def reset():
     s.cycles.device = 'CPU'
     s.view_settings.view_transform = 'AgX'
     s.view_settings.look = 'AgX - Medium High Contrast'
+    s.view_settings.exposure = 0.6
     s.cycles.use_denoising = True
     s.cycles.denoiser = 'OPENIMAGEDENOISE'
     s.cycles.max_bounces = 8
@@ -137,6 +143,83 @@ def bump_tiles(scale=1.0, w=0.3, hgt=0.15):
         nt.links.new(brick.outputs['Fac'], bmp.inputs['Height']); nt.links.new(bmp.outputs['Normal'], p.inputs['Normal'])
     return f
 
+def img_node(nt, file, scale, noncolor=False, rot=0.0):
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    mp = nt.nodes.new('ShaderNodeMapping'); mp.inputs['Scale'].default_value = scale
+    mp.inputs['Rotation'].default_value = (0, 0, rot)
+    nt.links.new(tc.outputs['Object'], mp.inputs['Vector'])
+    im = nt.nodes.new('ShaderNodeTexImage'); im.image = bpy.data.images.load(asset(file), check_existing=True)
+    if noncolor:
+        im.image.colorspace_settings.name = 'Non-Color'
+    nt.links.new(mp.outputs['Vector'], im.inputs['Vector'])
+    return im
+
+def M_HARDWOOD(scale=0.9, tint=None):
+    key = 'hardwood_' + str(tint)
+    if key in _mats:
+        return _mats[key]
+    m = bpy.data.materials.new(key); m.use_nodes = True
+    nt = m.node_tree; p = nt.nodes['Principled BSDF']
+    sc = (scale, scale, scale)
+    d = img_node(nt, 'hardwood2_diffuse.jpg', sc, rot=math.pi / 2)
+    if tint:
+        mix = nt.nodes.new('ShaderNodeMix'); mix.data_type = 'RGBA'; mix.blend_type = 'MULTIPLY'
+        mix.inputs[0].default_value = 1.0; mix.inputs[7].default_value = (*tint, 1)
+        hs = nt.nodes.new('ShaderNodeHueSaturation'); hs.inputs['Saturation'].default_value = 0.62
+        nt.links.new(d.outputs['Color'], hs.inputs['Color'])
+        nt.links.new(hs.outputs['Color'], mix.inputs[6]); nt.links.new(mix.outputs[2], p.inputs['Base Color'])
+    else:
+        nt.links.new(d.outputs['Color'], p.inputs['Base Color'])
+    r = img_node(nt, 'hardwood2_roughness.jpg', sc, True, rot=math.pi / 2)
+    rr = nt.nodes.new('ShaderNodeMapRange'); rr.inputs['To Min'].default_value = 0.25; rr.inputs['To Max'].default_value = 0.55
+    nt.links.new(r.outputs['Color'], rr.inputs['Value']); nt.links.new(rr.outputs['Result'], p.inputs['Roughness'])
+    b = img_node(nt, 'hardwood2_bump.jpg', sc, True, rot=math.pi / 2)
+    bm = nt.nodes.new('ShaderNodeBump'); bm.inputs['Strength'].default_value = 0.25
+    nt.links.new(b.outputs['Color'], bm.inputs['Height']); nt.links.new(bm.outputs['Normal'], p.inputs['Normal'])
+    _mats[key] = m
+    return m
+
+def M_IMAGE(name, file, scale, rough=0.8, normal=None, bump_file=None, bump=0.3):
+    if name in _mats:
+        return _mats[name]
+    m = bpy.data.materials.new(name); m.use_nodes = True
+    nt = m.node_tree; p = nt.nodes['Principled BSDF']
+    d = img_node(nt, file, scale)
+    nt.links.new(d.outputs['Color'], p.inputs['Base Color'])
+    p.inputs['Roughness'].default_value = rough
+    if normal:
+        n = img_node(nt, normal, scale, True)
+        nm = nt.nodes.new('ShaderNodeNormalMap'); nt.links.new(n.outputs['Color'], nm.inputs['Color'])
+        nt.links.new(nm.outputs['Normal'], p.inputs['Normal'])
+    elif bump_file:
+        b = img_node(nt, bump_file, scale, True)
+        bm = nt.nodes.new('ShaderNodeBump'); bm.inputs['Strength'].default_value = bump
+        nt.links.new(b.outputs['Color'], bm.inputs['Height']); nt.links.new(bm.outputs['Normal'], p.inputs['Normal'])
+    _mats[name] = m
+    return m
+
+def world_hdri(file, strength=1.0, rot_deg=0.0):
+    w = bpy.data.worlds.new('hdri'); bpy.context.scene.world = w
+    w.use_nodes = True; nt = w.node_tree
+    tc = nt.nodes.new('ShaderNodeTexCoord'); mp = nt.nodes.new('ShaderNodeMapping')
+    mp.inputs['Rotation'].default_value = (0, 0, math.radians(rot_deg))
+    env = nt.nodes.new('ShaderNodeTexEnvironment'); env.image = bpy.data.images.load(asset(file), check_existing=True)
+    nt.links.new(tc.outputs['Generated'], mp.inputs['Vector']); nt.links.new(mp.outputs['Vector'], env.inputs['Vector'])
+    bg = nt.nodes['Background']; bg.inputs['Strength'].default_value = strength
+    nt.links.new(env.outputs['Color'], bg.inputs['Color'])
+
+def glb(file, loc, rotz=0.0, scale=1.0):
+    """Import a glTF model, move/rotate it as a whole (label 0: furniture)."""
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=asset(file))
+    new = [o for o in bpy.data.objects if o not in before]
+    bpy.ops.object.empty_add(location=(0, 0, 0)); root = bpy.context.object; root.name = file
+    for o in new:
+        if o.parent is None:
+            o.parent = root
+    root.scale = (scale, scale, scale); root.rotation_euler = (0, 0, rotz); root.location = loc
+    return root
+
 # paint: neutral whites the app repaints
 def M_WALL(): return mat('wall', (0.78, 0.775, 0.76), rough=0.92, spec=0.3, bump=bump_noise(0.04, 140))
 def M_CEIL(): return mat('ceiling', (0.8, 0.8, 0.79), rough=0.97, spec=0.2)
@@ -199,8 +282,8 @@ def shell(W, D, H, walls_label=None):
     box('ceiling', (W + 2 * T, D + 2 * T, 0.1), (W / 2, D / 2, H + 0.05), M_CEIL(), 'ceiling')
     return parts
 
-def floor_wood(W, D, c1=(0.19, 0.13, 0.08), c2=(0.31, 0.21, 0.13)):
-    m = mat('floor_wood_%d' % int(c1[0] * 100), (0.4, 0.26, 0.15), rough=0.35, spec=0.5, tex=tex_wood(6, c1, c2))
+def floor_wood(W, D, c1=None, c2=None, tint=None):
+    m = M_HARDWOOD(tint=tint or (0.62, 0.5, 0.4))
     box('floor', (W + 2 * T, D + 2 * T, 0.1), (W / 2, D / 2, -0.05), m)
 
 def baseboards(W, D, skip=()):
@@ -326,7 +409,7 @@ def door(wall, wall_obj, W, D, cx, dw=0.86, dh=2.05, open_frac=0.0):
         cyl('door_knob', 0.028, 0.06, (x + 0.02, cx + dw / 2 - 0.09, 0.95), knob, rot=(0, math.pi / 2, 0))
 
 def outside_ground():
-    g = mat('grass', (0.12, 0.25, 0.06), rough=0.9, tex=tex_noise_color((0.08, 0.18, 0.04), (0.2, 0.35, 0.1), 3))
+    g = M_IMAGE('lawn_img', 'grasslight-big.jpg', (0.12, 0.12, 0.12), rough=0.95)
     box('outside_ground', (80, 80, 0.1), (0, 0, -0.6), g)
     trees = mat('trees', (0.08, 0.2, 0.05), rough=0.9, tex=tex_noise_color((0.04, 0.12, 0.03), (0.16, 0.3, 0.08), 2.5))
     random.seed(4)
@@ -417,8 +500,12 @@ def armchair(x, y, rotz, color=(0.75, 0.72, 0.66)):
         p.parent = e
 
 def rug(x, y, w, d, colors):
-    m = mat('rug_%d' % int(colors[0][0] * 100), colors[0], rough=1.0, tex=tex_rug(*colors))
-    box('rug', (w, d, 0.012), (x, y, 0.006), m, bevel=0.004)
+    m = mat('rug_%d' % int(colors[0][0] * 100), colors[0], rough=1.0, bump=bump_noise(0.5, 400))
+    border = mat('rugb_%d' % int(colors[1][0] * 100), colors[1], rough=1.0, bump=bump_noise(0.5, 400))
+    box('rug_border', (w, d, 0.012), (x, y, 0.006), border, bevel=0.004)
+    box('rug', (w - 0.24, d - 0.24, 0.014), (x, y, 0.007), m)
+    box('rug_line', (w - 0.36, d - 0.36, 0.0155), (x, y, 0.0078), border)
+    box('rug_in', (w - 0.42, d - 0.42, 0.016), (x, y, 0.008), m)
 
 def coffee_table(x, y, r=0.5):
     wood = mat('table_wood', (0.45, 0.32, 0.2), rough=0.45, tex=tex_noise_color((0.38, 0.26, 0.15), (0.52, 0.38, 0.24), 6, 8))
@@ -497,30 +584,30 @@ def curtains(W, D, cx, ww, top, color=(0.88, 0.86, 0.8)):
 
 def room_living():
     W, D, H = 5.6, 5.2, 2.65
-    world_sky(0.8, 30, 200); outside_ground()
+    world_hdri('forest_slope.hdr', 1.0, 200)
     p = shell(W, D, H)
     floor_wood(W, D)
-    window('back', p['back'], W, D, 3.6, 0.75, 1.5, 1.55)
-    curtains(W, D, 3.6, 1.5, 2.45)
-    door('right', p['right'], W, D, 4.2)
+    window('back', p['back'], W, D, 3.7, 0.75, 1.5, 1.55)
+    curtains(W, D, 3.7, 1.5, 2.45, (0.86, 0.84, 0.79))
+    door('right', p['right'], W, D, 4.3)
     baseboards(W, D); crown(W, D, H)
-    sofa(1.55, D - 0.6, facing='-y', color=(0.42, 0.34, 0.27))
-    art('back', W, D, 1.55, 1.65, 1.1, 0.75)
-    art('left', W, D, 2.4, 1.5, 0.6, 0.8, ((0.6, 0.4, 0.3), (0.85, 0.8, 0.7)))
-    rug(2.0, D - 1.9, 3.0, 2.2, ((0.62, 0.58, 0.52), (0.4, 0.38, 0.36), (0.75, 0.72, 0.66)))
-    coffee_table(2.0, D - 1.85)
-    armchair(0.75, D - 2.6, math.radians(-70))
+    glb('GlamVelvetSofa.glb', (1.6, D - 0.55, 0), math.pi)
+    art('back', W, D, 1.6, 1.62, 1.1, 0.72, ((0.72, 0.6, 0.46), (0.38, 0.43, 0.44)))
+    rug(1.9, D - 2.0, 3.0, 2.2, ((0.8, 0.77, 0.71), (0.45, 0.42, 0.38), (0.8, 0.77, 0.71)))
+    coffee_table(1.75, D - 1.75)
+    glb('GlassVaseFlowers.glb', (1.75, D - 1.75, 0.445), 0, 1.3)
+    glb('SheenChair.glb', (0.65, D - 2.55, 0), -math.pi / 2 + 0.35)
+    glb('DiffuseTransmissionPlant.glb', (5.0, D - 0.45, 0), 0.4, 1.5)
     floor_lamp(0.35, D - 0.4)
-    floor_plant(5.05, D - 0.4)
-    sun((math.radians(50), 0, math.radians(205)), 3.6)
-    area((W / 2, D / 2, H - 0.05), 2.5, 70, color=(1, 0.97, 0.92))
-    camera((5.0, 0.5, 1.4), (2.0, D, 1.0), lens=20)
+    sun((math.radians(52), 0, math.radians(205)), 5.0, 1.0)
+    area((W / 2, D / 2, H - 0.05), 2.5, 40, color=(1, 0.97, 0.92))
+    camera((5.05, 0.5, 1.4), (2.0, D, 1.0), lens=20)
 
 def room_bedroom():
     W, D, H = 4.8, 4.6, 2.6
-    world_sky(0.8, 40, 120); outside_ground()
+    world_hdri('forest_slope.hdr', 1.0, 100)
     p = shell(W, D, H, {'back': 'accent'})
-    floor_wood(W, D, (0.45, 0.32, 0.2), (0.62, 0.46, 0.3))
+    floor_wood(W, D, tint=(0.85, 0.74, 0.62))
     window('left', p['left'], W, D, 2.0, 0.8, 1.2, 1.45)
     door('right', p['right'], W, D, 1.4)
     baseboards(W, D); crown(W, D, H)
@@ -543,16 +630,18 @@ def room_bedroom():
         table_lamp(nx, D - 0.25, 0.55)
     rug(bx, by - 0.4, 2.6, 2.2, ((0.7, 0.68, 0.64), (0.55, 0.52, 0.5), (0.8, 0.78, 0.74)))
     art('back', W, D, bx, 1.75, 0.9, 0.55, ((0.55, 0.6, 0.6), (0.85, 0.8, 0.72)))
-    floor_plant(0.45, 0.6)
-    sun((math.radians(50), 0, math.radians(-80)), 3.0)
-    area((W / 2, D / 2, H - 0.05), 2.2, 60)
+    glb('SpecularSilkPouf.glb', (bx, by - 1.35, 0), 0, 1.0)
+    glb('ChairDamaskPurplegold.glb', (0.65, 0.95, 0), -math.pi / 2 - 0.5)
+    glb('DiffuseTransmissionPlant.glb', (4.35, 0.55, 0), 1.2, 1.4)
+    sun((math.radians(50), 0, math.radians(-80)), 5.0, 1.0)
+    area((W / 2, D / 2, H - 0.05), 2.2, 35)
     camera((4.3, 0.4, 1.45), (1.9, D, 0.95), lens=19)
 
 def room_kitchen():
     W, D, H = 4.6, 4.2, 2.6
-    world_sky(0.9, 35, 160); outside_ground()
+    world_hdri('forest_slope.hdr', 1.0, 160)
     p = shell(W, D, H)
-    tile = mat('floor_tile', (0.7, 0.69, 0.66), rough=0.3, bump=bump_tiles(1.0, 0.45, 0.45))
+    tile = M_HARDWOOD(tint=(0.8, 0.7, 0.6))
     box('floor', (W + 2 * T, D + 2 * T, 0.1), (W / 2, D / 2, -0.05), tile)
     window('back', p['back'], W, D, 2.0, 1.15, 1.1, 1.0)
     baseboards(W, D, skip=('back',)); crown(W, D, H)
@@ -600,16 +689,17 @@ def room_kitchen():
     box('cooktop', (0.74, 0.58, 0.012), (3.3, D - 0.31, 0.906), mat('glass_black', (0.02, 0.02, 0.02), rough=0.05))
     box('hood', (0.76, 0.48, 0.25), (3.3, D - 0.24, 1.6), steel, bevel=0.01)
     box('hood_chimney', (0.3, 0.25, 0.75), (3.3, D - 0.13, 2.1), steel, bevel=0.005)
-    plant_pot(0.6, D - 0.3, 0.94, 0.08, 0.12)
-    sun((math.radians(55), 0, math.radians(160)), 3.0)
-    area((W / 2, D / 2, H - 0.05), 2.0, 80)
+    glb('GlassVaseFlowers.glb', (0.7, D - 0.3, 0.94), 0, 1.2)
+    glb('DiffuseTransmissionPlant.glb', (4.0, 0.9, 0), 0.8, 1.3)
+    sun((math.radians(55), 0, math.radians(160)), 5.0, 1.0)
+    area((W / 2, D / 2, H - 0.05), 2.0, 45)
     camera((0.6, 0.35, 1.5), (2.6, D, 1.15), lens=20)
 
 def room_dining():
     W, D, H = 4.8, 5.0, 2.7
-    world_sky(0.8, 30, 230); outside_ground()
+    world_hdri('forest_slope.hdr', 1.0, 230)
     p = shell(W, D, H)
-    floor_wood(W, D, (0.25, 0.16, 0.1), (0.4, 0.26, 0.16))
+    floor_wood(W, D, tint=(0.55, 0.42, 0.33))
     window('back', p['back'], W, D, 2.4, 0.7, 1.4, 1.6)
     curtains(W, D, 2.4, 1.4, 2.5, (0.75, 0.73, 0.68))
     baseboards(W, D); crown(W, D, H)
@@ -654,27 +744,28 @@ def room_dining():
     obj_set(bpy.context.object, shade, 'none', smooth=True)
     point((tx, ty, H - 1.08), 30, 0.08)
     # centerpiece + sideboard + art
-    plant_pot(tx, ty, 0.775, 0.1, 0.15)
+    glb('GlassVaseFlowers.glb', (tx, ty, 0.775), 0, 1.4)
     sb = mat('sideboard', (0.2, 0.15, 0.11), rough=0.4)
     box('sideboard', (1.6, 0.45, 0.8), (0.24, 2.5, 0.4), sb, bevel=0.01, rot=None)
     bpy.context.object.scale = (1, 1, 1)
     art('left', W, D, 2.5, 1.65, 1.2, 0.8, ((0.3, 0.38, 0.42), (0.8, 0.72, 0.58)))
     rug(tx, ty, 2.9, 2.2, ((0.55, 0.2, 0.15), (0.2, 0.22, 0.3), (0.75, 0.68, 0.55)))
-    sun((math.radians(58), 0, math.radians(230)), 3.0)
-    area((W / 2, D / 2, H - 0.05), 2.2, 70)
+    glb('DiffuseTransmissionPlant.glb', (4.3, D - 0.45, 0), 2.0, 1.5)
+    sun((math.radians(58), 0, math.radians(230)), 5.0, 1.0)
+    area((W / 2, D / 2, H - 0.05), 2.2, 40)
     camera((4.25, 0.35, 1.45), (1.6, D, 0.95), lens=19)
 
 def room_exterior():
     """Two-story colonial facade: siding = walls (body), trim, front door + shutters = accent."""
-    world_sky(0.45, 40, 140)
-    grass = mat('lawn', (0.12, 0.28, 0.06), rough=0.9, tex=tex_noise_color((0.08, 0.2, 0.04), (0.2, 0.38, 0.1), 9))
+    world_hdri('rooitou_park.hdr', 0.9, 0)
+    grass = M_IMAGE('lawn_ext', 'grasslight-big.jpg', (0.15, 0.15, 0.15), rough=0.95)
     box('lawn', (80, 80, 0.1), (0, 0, -0.05), grass)
     HW, HD, H1 = 11.0, 8.0, 5.8
     siding = mat('siding', (0.8, 0.8, 0.79), rough=0.8, spec=0.3)
     trim = M_TRIM()
     accent = mat('front_door', (0.8, 0.8, 0.79), rough=0.3)
-    found = mat('foundation', (0.55, 0.53, 0.5), rough=0.9, bump=bump_noise(0.3, 30))
-    roofm = mat('roof', (0.12, 0.12, 0.13), rough=0.85, bump=bump_tiles(3.0, 0.33, 0.2))
+    found = M_IMAGE('foundation', 'brick_diffuse.jpg', (0.8, 0.8, 0.8), rough=0.9, bump_file='brick_bump.jpg', bump=0.4)
+    roofm = mat('roof', (0.045, 0.045, 0.05), rough=0.9, spec=0.2, bump=bump_tiles(3.0, 0.33, 0.2))
     box('foundation', (HW + 0.1, HD + 0.1, 0.5), (0, 0, 0.25), found)
     # body made of clapboards on the front face, a plain box behind
     core = box('house_core', (HW, HD, H1), (0, 0, 0.5 + H1 / 2), siding, 'walls')
@@ -694,6 +785,8 @@ def room_exterior():
     ro = bpy.data.objects.new('roof', me); bpy.context.collection.objects.link(ro)
     sol = ro.modifiers.new('solid', 'SOLIDIFY'); sol.thickness = 0.15
     obj_set(ro, roofm, 'none')
+    box('soffit', (HW + 0.8, HD + 1.2, 0.06), (0, 0, 0.5 + H1 + 0.02), trim, 'trim')
+    bpy.context.scene.view_settings.exposure = 0.0
     # fascia + corner boards + frieze
     fy = -HD / 2 - 0.05
     box('fascia', (HW + 0.8, 0.06, 0.22), (0, -HD / 2 - 0.62, 0.5 + H1 - 0.05), trim, 'trim', 0.01)
@@ -744,14 +837,16 @@ def room_exterior():
     shrub = mat('shrub', (0.07, 0.2, 0.05), rough=0.9, tex=tex_noise_color((0.03, 0.09, 0.02), (0.1, 0.22, 0.05), 18), bump=bump_noise(0.6, 25))
     random.seed(7)
     for sxn in list(range(-5, -1)) + list(range(2, 6)):
-        for k in range(4):
-            sphere('shrub', random.uniform(0.25, 0.38), (sxn * 1.0 + random.uniform(-0.35, 0.35), fy - 0.55 + random.uniform(-0.15, 0.15), random.uniform(0.3, 0.6)), shrub, scale=(1.1, 0.9, 0.85))
+        pass
+    hedge = M_IMAGE('hedge', 'grasslight-big.jpg', (0.9, 0.9, 0.9), rough=0.95, bump_file='grasslight-big.jpg', bump=1.0)
+    for sd in (-1, 1):
+        box('hedge', (3.6, 0.7, 0.85), (sd * 3.1, fy - 0.55, 0.42), hedge, bevel=0.18)
     # trees in the back / sides
     trees = mat('trees', (0.08, 0.2, 0.05), rough=0.9, tex=tex_noise_color((0.04, 0.12, 0.03), (0.16, 0.3, 0.08), 2.5))
     for (tx, ty, r) in ():
         sphere('tree', r, (tx, ty + 6, r + 1.5), trees, scale=(1, 1, 1.25))
         cyl('trunk', 0.18, 2.5, (tx, ty, 1.25), mat('bark', (0.2, 0.14, 0.09), rough=0.9))
-    sun((math.radians(50), 0, math.radians(-35)), 2.6)
+    sun((math.radians(50), 0, math.radians(-35)), 3.5, 1.0)
     camera((-3.2, -16.5, 2.0), (0.2, 0, 3.6), lens=28)
 
 ROOMS = {
